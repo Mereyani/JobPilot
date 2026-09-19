@@ -9,11 +9,29 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
-EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+# The last label has to be a real alphabetic TLD. Without that anchor this
+# matched CSS out of stylesheets - a Google Fonts axis spec like
+# "wght@400..700" parsed as an address, which would then have become the
+# To: line of a job application.
+EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,24}\b")
 
 # Addresses/domains that show up on job pages but are never a real
 # application contact (tracking pixels, platform no-reply addresses, etc.)
-_NOISE = ("noreply", "no-reply", "donotreply", "sentry.io", "wixpress.com", "example.com")
+_NOISE = (
+    "noreply",
+    "no-reply",
+    "donotreply",
+    "sentry.io",
+    "wixpress.com",
+    "example.com",
+    # Template placeholders printed literally on career pages. Seen live:
+    # a Saudi board rendered "name@company.com" as sample text.
+    "name@company.com",
+    "@yourcompany",
+    "@domain.com",
+    "yourname@",
+    "email@email",
+)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -62,19 +80,24 @@ def _fetch_with_browser(url: str, timeout: float) -> str | None:
         return None
 
 
-def find_contact_email_on_page(url: str, timeout: float = 15.0) -> str | None:
-    text = None
+def fetch_page(url: str, timeout: float = 15.0) -> str | None:
+    """Page HTML via a plain HTTP request, falling back to a headless
+    browser only when the cheap path is challenge-walled. Shared with the
+    web-search connector, which needs the markup itself rather than just
+    an address out of it."""
     try:
         response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
         if not _looks_challenge_walled(response.status_code, response.text):
             response.raise_for_status()
-            text = response.text
+            return response.text
     except requests.RequestException:
-        text = None
+        pass
 
-    if text is None:
-        text = _fetch_with_browser(url, timeout)
+    return _fetch_with_browser(url, timeout)
 
+
+def find_contact_email_on_page(url: str, timeout: float = 15.0) -> str | None:
+    text = fetch_page(url, timeout)
     return find_contact_email(text) if text else None
 
 

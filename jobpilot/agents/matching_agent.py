@@ -7,6 +7,7 @@ from jobpilot.agents.profile_agent import load_profile
 from jobpilot.core.database import JobRecord, get_session
 from jobpilot.core.llm import ask_json
 from jobpilot.core.models import CandidateProfile
+from jobpilot.core.seniority import too_senior
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,18 @@ def run(progress: Callable[[str], None] | None = None) -> int:
             return 0
         for i, job in enumerate(pending, start=1):
             report(f"Scoring ({i}/{total}): {job.title} at {job.company}...")
+
+            # Hard gate, decided without the model: a small local model does
+            # not reliably honour "seniority is a hard gate" in the prompt,
+            # so over-level roles are rejected here outright. Skipping the
+            # call also makes the whole match stage measurably faster.
+            rejection = too_senior(job.title, job.description or "")
+            if rejection:
+                job.match_score = 0
+                job.match_reason = f"rejected:{rejection}"
+                scored += 1
+                continue
+
             try:
                 score, reason = _score(profile, job)
             except Exception:

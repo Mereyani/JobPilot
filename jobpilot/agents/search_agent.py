@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from jobpilot.agents.profile_agent import load_profile
 from jobpilot.connectors.bayt import BaytConnector
+from jobpilot.connectors.websearch import WebSearchConnector
 from jobpilot.core.database import JobRecord, get_session
 from jobpilot.core.llm import ask_json
 from jobpilot.core.models import CandidateProfile, JobListing
@@ -57,7 +58,10 @@ def _keywords_for_country(profile: CandidateProfile | None, country: str, fallba
 
 
 def _connectors() -> list:
-    return [BaytConnector()]
+    # Bayt gives volume on one platform; the web search reaches everything
+    # else - including the small local boards that actually print a contact
+    # email in the posting.
+    return [BaytConnector(), WebSearchConnector()]
 
 
 def _upsert(session, job: JobListing) -> bool:
