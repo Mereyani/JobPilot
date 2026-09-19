@@ -124,9 +124,11 @@ def poll_inbox(limit: int = 20, progress: Callable[[str], None] | None = None) -
                 )
             }
 
-            for msg_id in message_ids:
+            for i, msg_id in enumerate(message_ids, start=1):
                 if processed >= limit:
                     break
+                if i == 1 or i % 50 == 0:
+                    report(f"Scanning headers: {i}/{len(message_ids)}...")
 
                 # PEEK never sets \Seen - mail we skip stays exactly as the
                 # user left it.
