@@ -44,27 +44,38 @@
 
   <section class="panel">
     <h2>{{ t('section.jobs') }}</h2>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>{{ t('col.score') }}</th><th>{{ t('col.title') }}</th><th>{{ t('col.company') }}</th><th>{{ t('col.country') }}</th><th>{{ t('col.source') }}</th><th></th></tr>
-        </thead>
-        <tbody>
-          {% for job in jobs %}
-          <tr>
-            <td>{% if job.match_score is not none %}<span class="badge {{ 'badge-good' if job.match_score >= settings.match_threshold else 'badge-mute' }}" title="{{ job.match_reason or '' }}">{{ job.match_score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-            <td>{{ job.title }}</td>
-            <td>{{ job.company }}</td>
-            <td>{{ job.country }}</td>
-            <td class="muted">{{ job.source }}</td>
-            <td><a href="{{ job.url }}" target="_blank" rel="noopener">{{ t('link.open') }}</a></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6" class="muted">{{ t('empty.jobs') }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <form method="post" action="/apply-selected">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>{{ t('col.score') }}</th><th>{{ t('col.title') }}</th><th>{{ t('col.company') }}</th>
+              <th>{{ t('col.country') }}</th><th>{{ t('col.source') }}</th><th>{{ t('col.status') }}</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in jobs %}
+            {% set app = applications_by_job.get(job.external_id) %}
+            {% set is_manual_candidate = job.match_score is not none and job.match_score >= settings.match_threshold and job.match_score < settings.auto_apply_threshold and (app is none or app.status == "failed") %}
+            <tr>
+              <td>{% if is_manual_candidate %}<input type="checkbox" name="job_ids" value="{{ job.external_id }}">{% endif %}</td>
+              <td>{% if job.match_score is not none %}<span class="badge {{ 'badge-good' if job.match_score >= settings.match_threshold else 'badge-mute' }}" title="{{ job.match_reason or '' }}">{{ job.match_score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td>{{ job.title }}</td>
+              <td>{{ job.company }}</td>
+              <td>{{ job.country }}</td>
+              <td class="muted">{{ job.source }}</td>
+              <td>{% if app %}<span class="badge badge-{{ app.status }}">{{ t('status.' ~ app.status) }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td><a href="{{ job.url }}" target="_blank" rel="noopener">{{ t('link.open') }}</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="muted">{{ t('empty.jobs') }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <button type="submit" class="btn" id="btn-apply-selected" {{ "disabled" if "apply-selected" in running }}>{{ t('action.apply_selected') }}</button>
+    </form>
   </section>
 
   <section class="panel">
@@ -76,7 +87,7 @@
           {% for app in applications %}
           <tr>
             <td>{{ app.job_external_id }}</td>
-            <td><span class="badge badge-{{ app.status }}">{{ app.status }}</span></td>
+            <td><span class="badge badge-{{ app.status }}">{{ t('status.' ~ app.status) }}</span></td>
             <td class="muted">
               {% if app.failure_reason == "no_contact_email" %}{{ t('reason.no_contact_email') }}
               {% elif app.failure_reason %}{{ app.failure_reason }}
@@ -139,7 +150,7 @@
             var el = document.getElementById('stat-' + key);
             if (el) el.textContent = data.stats[key];
           });
-          ['search', 'match', 'apply', 'check-email'].forEach(function (stage) {
+          ['search', 'match', 'apply', 'check-email', 'apply-selected'].forEach(function (stage) {
             var btn = document.getElementById('btn-' + stage);
             if (btn) btn.disabled = data.running.indexOf(stage) !== -1;
           });

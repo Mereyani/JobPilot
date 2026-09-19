@@ -51,6 +51,14 @@ _STRINGS: dict[str, dict[str, str]] = {
     "empty.applications": {"en": "No applications sent yet.", "ar": "لم يتم إرسال أي تقديم بعد."},
     "empty.emails": {"en": "No emails yet.", "ar": "لا توجد رسائل بعد."},
     "link.open": {"en": "open ↗", "ar": "فتح ↗"},
+    "col.select": {"en": "Select", "ar": "اختيار"},
+    "action.apply_selected": {"en": "Apply to selected", "ar": "التقديم على المحدد"},
+    "status.pending": {"en": "Pending", "ar": "قيد المعالجة"},
+    "status.applied": {"en": "Sent", "ar": "تم الإرسال"},
+    "status.failed": {"en": "Failed", "ar": "فشل"},
+    "status.interview": {"en": "Interview", "ar": "مقابلة"},
+    "status.rejected": {"en": "Rejected", "ar": "مرفوض"},
+    "status.replied": {"en": "Replied", "ar": "تم الرد"},
     "settings.title": {"en": "Settings", "ar": "الإعدادات"},
     "settings.subtitle": {
         "en": "Everything here is stored locally in your own database — nothing is shared or committed.",
@@ -92,6 +100,11 @@ _STRINGS: dict[str, dict[str, str]] = {
     "field.roles": {"en": "Roles (comma-separated)", "ar": "المسميات الوظيفية (مفصولة بفواصل)"},
     "field.resume_path": {"en": "Resume path", "ar": "مسار السيرة الذاتية"},
     "field.match_threshold": {"en": "Match threshold (0-100)", "ar": "الحد الأدنى للتطابق (0-100)"},
+    "field.auto_apply_threshold": {"en": "Auto-apply threshold (0-100)", "ar": "حد التقديم التلقائي (0-100)"},
+    "settings.threshold_hint": {
+        "en": "Jobs scoring at/above the auto-apply threshold are sent automatically. Jobs between the two thresholds show up on the dashboard for you to pick from instead.",
+        "ar": "الوظائف التي تصل نسبتها لحد التقديم التلقائي أو أعلى تُرسل تلقائياً. الوظائف بين الحدّين تظهر في اللوحة لتختار منها بنفسك.",
+    },
     "settings.pacing": {"en": "Application pacing", "ar": "وتيرة إرسال التقديمات"},
     "settings.pacing_hint": {
         "en": "Applications are sent this many at a time, then JobPilot waits before the next batch.",

@@ -1,10 +1,20 @@
-"""The whole "apply" step, in one sentence: find a contact email on the
-job's listing page, write a tailored cover letter, send it with the
-candidate's resume attached - N applications at a time with a cooldown in
-between.
+"""The whole "apply" step, in one sentence: find a contact email for the
+job (on the listing page, or by searching the web for the company's own
+contact address if the listing has none), write a tailored cover letter,
+send it with the candidate's resume attached - N applications at a time
+with a cooldown in between.
 
-No platform-specific form-filling, no browser automation: if a listing has
-no discoverable email, it's marked failed for manual follow-up instead.
+Two ways a job gets applied to:
+- `run()`: fully automatic, but only for jobs scoring at/above
+  `auto_apply_threshold` - a deliberately high bar so unattended sending
+  only fires for near-perfect matches.
+- `apply_to_jobs()`: applies to exactly the job ids passed in, for the
+  dashboard's manual-selection flow (jobs between `match_threshold` and
+  `auto_apply_threshold` are shown there instead of being auto-sent).
+
+No platform-specific form-filling, no browser automation for the actual
+application: if no email can be found anywhere, it's marked failed for
+manual follow-up instead.
 """
 
 import logging
@@ -13,7 +23,7 @@ from collections.abc import Callable
 from jobpilot.agents.email_agent import build_subject, send_email
 from jobpilot.agents.profile_agent import load_profile
 from jobpilot.core.database import ApplicationRecord, JobRecord, get_session, utcnow
-from jobpilot.core.email_extract import find_contact_email_on_page
+from jobpilot.core.email_extract import find_contact_email_on_page, search_company_email
 from jobpilot.core.llm import ask_text
 from jobpilot.core.models import ApplyMethod, CandidateProfile
 from jobpilot.core.rate_limiter import BatchRateLimiter
@@ -34,7 +44,10 @@ only the letter body, no subject line or salutation placeholders like
 def _contact_email(job: JobRecord) -> str | None:
     if job.apply_method == ApplyMethod.EMAIL.value and job.apply_target:
         return job.apply_target
-    return find_contact_email_on_page(job.url)
+    email = find_contact_email_on_page(job.url)
+    if email:
+        return email
+    return search_company_email(job.company)
 
 
 def _cover_letter(profile: CandidateProfile, job: JobRecord) -> str:
@@ -46,7 +59,7 @@ def _cover_letter(profile: CandidateProfile, job: JobRecord) -> str:
     return ask_text(COVER_LETTER_SYSTEM_PROMPT, user_prompt, max_tokens=500)
 
 
-def _pending_jobs(session, match_threshold: int) -> list[JobRecord]:
+def _eligible_jobs(session, min_score: int, only_ids: set[str] | None = None) -> list[JobRecord]:
     # A "failed" attempt (no email found yet, a transient send error, ...)
     # should be retried on the next run - only a real outcome (sent, or a
     # reply came back) means this job is done and should never be
@@ -55,13 +68,14 @@ def _pending_jobs(session, match_threshold: int) -> list[JobRecord]:
         row.job_external_id
         for row in session.query(ApplicationRecord.job_external_id).filter(ApplicationRecord.status != "failed")
     }
-    jobs = (
+    query = (
         session.query(JobRecord)
         .filter(JobRecord.match_score.isnot(None))
-        .filter(JobRecord.match_score >= match_threshold)
-        .order_by(JobRecord.match_score.desc())
-        .all()
+        .filter(JobRecord.match_score >= min_score)
     )
+    if only_ids is not None:
+        query = query.filter(JobRecord.external_id.in_(only_ids))
+    jobs = query.order_by(JobRecord.match_score.desc()).all()
     return [j for j in jobs if j.external_id not in handled_ids]
 
 
@@ -101,10 +115,35 @@ def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: 
     session.commit()
 
 
-def run(progress: Callable[[str], None] | None = None) -> int:
-    """Apply to every eligible pending job, throttled per configuration.
+def _apply_batch(jobs: list[JobRecord], profile: CandidateProfile, resume_path: str, report: Callable[[str], None]) -> int:
+    settings = get_settings()
+    limiter = BatchRateLimiter(
+        batch_size=settings.application_batch_size,
+        interval_minutes=settings.application_batch_interval_minutes,
+    )
+    total = len(jobs)
+    if total == 0:
+        report("No eligible jobs to apply to.")
+        return 0
 
-    Returns the number of applications attempted (applied + failed).
+    attempted = 0
+    report(f"0/{total} applications sent")
+    with get_session() as session:
+        for batch in limiter.batches(jobs):
+            for job in batch:
+                # Re-attach a fresh copy of the job row to this session.
+                fresh_job = session.get(JobRecord, job.id)
+                report(f"Applying ({attempted + 1}/{total}): {fresh_job.title} at {fresh_job.company}...")
+                _apply_one(session, profile, fresh_job, resume_path)
+                attempted += 1
+                report(f"{attempted}/{total} applications processed")
+    return attempted
+
+
+def run(progress: Callable[[str], None] | None = None) -> int:
+    """Auto-apply to every job scoring at/above `auto_apply_threshold`,
+    throttled per configuration. Returns the number of applications
+    attempted (applied + failed).
     """
     report = progress or (lambda _msg: None)
 
@@ -113,23 +152,23 @@ def run(progress: Callable[[str], None] | None = None) -> int:
         raise RuntimeError("No candidate profile found - run the profile agent first.")
 
     settings = get_settings()
-    limiter = BatchRateLimiter(
-        batch_size=settings.application_batch_size,
-        interval_minutes=settings.application_batch_interval_minutes,
-    )
-
-    attempted = 0
     with get_session() as session:
-        pending = _pending_jobs(session, settings.match_threshold)
-        total = len(pending)
-        if total == 0:
-            report("No eligible jobs to apply to.")
-            return 0
-        report(f"0/{total} applications sent")
-        for batch in limiter.batches(pending):
-            for job in batch:
-                report(f"Applying ({attempted + 1}/{total}): {job.title} at {job.company}...")
-                _apply_one(session, profile, job, settings.resume_path)
-                attempted += 1
-                report(f"{attempted}/{total} applications processed")
-    return attempted
+        jobs = _eligible_jobs(session, settings.auto_apply_threshold)
+    return _apply_batch(jobs, profile, settings.resume_path, report)
+
+
+def apply_to_jobs(job_external_ids: list[str], progress: Callable[[str], None] | None = None) -> int:
+    """Apply to exactly these jobs (the dashboard's manual-selection flow),
+    as long as each is still at/above `match_threshold` and hasn't already
+    been successfully handled. Returns the number attempted.
+    """
+    report = progress or (lambda _msg: None)
+
+    profile = load_profile()
+    if profile is None:
+        raise RuntimeError("No candidate profile found - run the profile agent first.")
+
+    settings = get_settings()
+    with get_session() as session:
+        jobs = _eligible_jobs(session, settings.match_threshold, only_ids=set(job_external_ids))
+    return _apply_batch(jobs, profile, settings.resume_path, report)

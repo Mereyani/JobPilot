@@ -88,7 +88,11 @@
         <label>{{ t('field.match_threshold') }}
           <input type="number" name="match_threshold" min="0" max="100" value="{{ settings.match_threshold }}">
         </label>
+        <label>{{ t('field.auto_apply_threshold') }}
+          <input type="number" name="auto_apply_threshold" min="0" max="100" value="{{ settings.auto_apply_threshold }}">
+        </label>
       </div>
+      <p class="muted">{{ t('settings.threshold_hint') }}</p>
     </section>
 
     <section class="panel">

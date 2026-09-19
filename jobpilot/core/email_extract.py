@@ -1,12 +1,11 @@
-"""Best-effort extraction of a contact email from a job posting page.
-
-This is deliberately simple (a regex over the page text, skipping obvious
-noise addresses) rather than a second AI call or a search-engine lookup -
-per-job auto-apply here means "find an email and send to it", not a deep
-research pipeline.
+"""Best-effort extraction of a contact email from a job posting page, with
+a web-search fallback (`search_company_email`) for when the listing itself
+doesn't expose one.
 """
 
+import base64
 import re
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
@@ -77,3 +76,71 @@ def find_contact_email_on_page(url: str, timeout: float = 15.0) -> str | None:
         text = _fetch_with_browser(url, timeout)
 
     return find_contact_email(text) if text else None
+
+
+_GENERIC_COMPANY_NAMES = {"confidential company", "unknown", ""}
+
+
+def _decode_bing_redirect(href: str) -> str | None:
+    """Bing wraps every organic result in a `bing.com/ck/a?...&u=a1<b64>`
+    tracking redirect - unwrap it to the real target URL rather than
+    fetching through Bing's own click-tracking endpoint."""
+    try:
+        parsed = urlparse(href)
+        if "bing.com" not in parsed.netloc or not parsed.path.startswith("/ck/a"):
+            return href
+        encoded = parse_qs(parsed.query).get("u", [None])[0]
+        if not encoded or not encoded.startswith("a1"):
+            return None
+        b64 = encoded[2:]
+        b64 += "=" * (-len(b64) % 4)
+        return base64.urlsafe_b64decode(b64).decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+
+def _bing_search(query: str, max_results: int, timeout: float) -> list[str]:
+    """Renders a Bing results page with headless Chromium (not a plain
+    `requests` call - Bing's real organic results only show up once the
+    page's JS runs). Tried DuckDuckGo first, but it now serves an actual
+    visual CAPTCHA to automated requests, which this project will not
+    attempt to solve or bypass under any circumstance; Bing did not
+    present one in testing."""
+    from playwright.sync_api import sync_playwright
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=USER_AGENT)
+            page.goto(
+                f"https://www.bing.com/search?q={quote(query)}",
+                timeout=int(timeout * 1000),
+                wait_until="domcontentloaded",
+            )
+            page.wait_for_timeout(1500)
+            hrefs = page.eval_on_selector_all("li.b_algo h2 a", "els => els.map(e => e.href)")
+            browser.close()
+    except Exception:
+        return []
+
+    urls = []
+    for href in hrefs[:max_results]:
+        real_url = _decode_bing_redirect(href)
+        if real_url:
+            urls.append(real_url)
+    return urls
+
+
+def search_company_email(company: str, max_results: int = 4, timeout: float = 20.0) -> str | None:
+    """Last resort when a job listing itself has no email: search the web
+    for the company's own contact/careers address and check the top
+    results. Skipped for placeholder company names ("Confidential
+    Company", etc.) where a search would be meaningless."""
+    if company.strip().lower() in _GENERIC_COMPANY_NAMES:
+        return None
+
+    for url in _bing_search(f'"{company}" careers contact email', max_results, timeout):
+        email = find_contact_email_on_page(url, timeout=timeout)
+        if email:
+            return email
+    return None

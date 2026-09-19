@@ -36,6 +36,10 @@ class RuntimeSettings(BaseModel):
     target_countries: str = "Syria,Turkey,Saudi Arabia"
     target_roles: str = "Software Engineer"
     match_threshold: int = 70
+    # Jobs scoring at/above this are applied to automatically; jobs between
+    # match_threshold and this are shown in the dashboard for manual
+    # selection instead of being sent on their own.
+    auto_apply_threshold: int = 90
 
     # --- Outbound application pacing ---
     application_batch_size: int = 10

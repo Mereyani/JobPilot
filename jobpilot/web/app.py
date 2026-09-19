@@ -100,6 +100,23 @@ def _trigger_stage(stage: str) -> bool:
     return True
 
 
+def _trigger_apply_selected(job_ids: list[str]) -> bool:
+    """Apply to exactly these manually-picked jobs (dashboard checkboxes) -
+    a separate pseudo-stage from the automatic `apply`, tracked the same
+    way so it shows up live in the status strip too."""
+    if not job_ids or "apply-selected" in _running:
+        return False
+    from jobpilot.agents import application_agent
+
+    def fn(progress=None):
+        return application_agent.apply_to_jobs(job_ids, progress=progress)
+
+    _last_run["apply-selected"] = "Starting..."
+    _running.add("apply-selected")
+    threading.Thread(target=_run_stage, args=("apply-selected", fn), daemon=True).start()
+    return True
+
+
 def _auto_run_loop() -> None:
     """Runs the full pipeline on the interval set in Settings ('Run
     automatically'). Off by default - enabling it means real applications
@@ -159,12 +176,21 @@ def dashboard(request: Request):
         emails = session.query(EmailRecord).order_by(EmailRecord.id.desc()).limit(50).all()
         settings = get_settings()
         stats = _compute_stats(session)
+
+        # Keyed by job external_id so the template can show "already sent"
+        # and decide which jobs are eligible for manual selection - a job
+        # in the manual band (match_threshold <= score < auto_apply_threshold)
+        # is only selectable if it has no application yet, or its one
+        # attempt so far failed (eligible for retry, same rule as _eligible_jobs).
+        applications_by_job = {a.job_external_id: a for a in session.query(ApplicationRecord).all()}
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "jobs": jobs,
             "applications": applications,
+            "applications_by_job": applications_by_job,
             "emails": emails,
             "stats": stats,
             "last_run": _last_run,
@@ -187,6 +213,12 @@ def api_status():
 @app.post("/run/{stage}")
 def run_stage(stage: str):
     _trigger_stage(stage)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/apply-selected")
+def apply_selected(job_ids: list[str] = Form([])):
+    _trigger_apply_selected(job_ids)
     return RedirectResponse("/", status_code=303)
 
 
@@ -231,6 +263,7 @@ def save_settings(
     target_countries: str = Form(""),
     target_roles: str = Form(""),
     match_threshold: int = Form(70),
+    auto_apply_threshold: int = Form(90),
     application_batch_size: int = Form(10),
     application_batch_interval_minutes: int = Form(10),
     resume_path: str = Form("./data/resume.pdf"),
@@ -258,6 +291,7 @@ def save_settings(
         target_countries=target_countries,
         target_roles=target_roles,
         match_threshold=match_threshold,
+        auto_apply_threshold=auto_apply_threshold,
         application_batch_size=application_batch_size,
         application_batch_interval_minutes=application_batch_interval_minutes,
         resume_path=resume_path,

@@ -43,3 +43,37 @@ def test_trigger_stage_refuses_when_already_running():
     assert started is False
     mock_thread.assert_not_called()
     web_app._running.clear()
+
+
+def test_trigger_apply_selected_starts_with_job_ids():
+    web_app._last_run.clear()
+    web_app._running.clear()
+    with patch("threading.Thread") as mock_thread:
+        started = web_app._trigger_apply_selected(["bayt:1", "bayt:2"])
+
+    assert started is True
+    assert "apply-selected" in web_app._running
+    mock_thread.assert_called_once()
+    web_app._running.clear()
+
+
+def test_trigger_apply_selected_refuses_empty_selection():
+    web_app._last_run.clear()
+    web_app._running.clear()
+    with patch("threading.Thread") as mock_thread:
+        started = web_app._trigger_apply_selected([])
+
+    assert started is False
+    mock_thread.assert_not_called()
+
+
+def test_trigger_apply_selected_refuses_when_already_running():
+    web_app._last_run.clear()
+    web_app._running.clear()
+    web_app._running.add("apply-selected")
+    with patch("threading.Thread") as mock_thread:
+        started = web_app._trigger_apply_selected(["bayt:1"])
+
+    assert started is False
+    mock_thread.assert_not_called()
+    web_app._running.clear()
