@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,10 +14,15 @@
         <span class="brand-name">JobPilot</span>
       </div>
       <nav>
-        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
-        <a href="/settings" class="{{ 'active' if request.url.path == '/settings' else '' }}">Settings</a>
+        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">{{ t('nav.dashboard') }}</a>
+        <a href="/settings" class="{{ 'active' if request.url.path == '/settings' else '' }}">{{ t('nav.settings') }}</a>
       </nav>
-      <a class="repo-link" href="https://github.com/Mereyani/JobPilot" target="_blank" rel="noopener">GitHub ↗</a>
+      <div class="lang-switch">
+        {% for code, label in languages.items() %}
+          <a href="/lang/{{ code }}" class="{{ 'active' if lang == code else '' }}">{{ label }}</a>
+        {% endfor %}
+      </div>
+      <a class="repo-link" href="https://github.com/Mereyani/JobPilot" target="_blank" rel="noopener">{{ t('nav.github') }}</a>
     </aside>
     <main class="content">
       {% block content %}{% endblock %}

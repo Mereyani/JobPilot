@@ -1,60 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Settings · JobPilot{% endblock %}
+{% block title %}{{ t('settings.title') }} · JobPilot{% endblock %}
 {% block content %}
   <header class="page-header">
     <div>
-      <h1>Settings</h1>
-      <p class="muted">Everything here is stored locally in your own database — nothing is shared or committed.</p>
+      <h1>{{ t('settings.title') }}</h1>
+      <p class="muted">{{ t('settings.subtitle') }}</p>
     </div>
   </header>
 
-  {% if saved %}<div class="flash">Saved.</div>{% endif %}
+  {% if saved %}<div class="flash">{{ t('settings.saved') }}</div>{% endif %}
 
   <form method="post" action="/settings" class="settings-form">
 
     <section class="panel">
-      <h2>AI provider</h2>
-      <p class="muted">Pick the model that scores job matches and writes cover letters / replies.</p>
+      <h2>{{ t('settings.ai_provider') }}</h2>
+      <p class="muted">{{ t('settings.ai_provider_hint') }}</p>
       <div class="field-row">
-        <label class="radio"><input type="radio" name="llm_provider" value="anthropic" {{ "checked" if settings.llm_provider == "anthropic" }}> Anthropic (Claude)</label>
-        <label class="radio"><input type="radio" name="llm_provider" value="google" {{ "checked" if settings.llm_provider == "google" }}> Google (Gemini)</label>
-        <label class="radio"><input type="radio" name="llm_provider" value="ollama" {{ "checked" if settings.llm_provider == "ollama" }}> Ollama (local, no key needed)</label>
+        <label class="radio"><input type="radio" name="llm_provider" value="anthropic" {{ "checked" if settings.llm_provider == "anthropic" }}> {{ t('provider.anthropic') }}</label>
+        <label class="radio"><input type="radio" name="llm_provider" value="google" {{ "checked" if settings.llm_provider == "google" }}> {{ t('provider.google') }}</label>
+        <label class="radio"><input type="radio" name="llm_provider" value="ollama" {{ "checked" if settings.llm_provider == "ollama" }}> {{ t('provider.ollama') }}</label>
       </div>
       <div class="field-grid">
-        <label>Anthropic API key
-          <input type="password" name="anthropic_api_key" placeholder="{{ '•••• saved — leave blank to keep' if settings.anthropic_api_key else 'sk-ant-...' }}">
+        <label>{{ t('field.anthropic_key') }}
+          <input type="password" name="anthropic_api_key" placeholder="{{ t('placeholder.saved_secret') if settings.anthropic_api_key else 'sk-ant-...' }}">
         </label>
-        <label>Anthropic model
+        <label>{{ t('field.anthropic_model') }}
           <input type="text" name="anthropic_model" value="{{ settings.anthropic_model }}">
         </label>
-        <label>Google API key
-          <input type="password" name="google_api_key" placeholder="{{ '•••• saved — leave blank to keep' if settings.google_api_key else 'AIzaSy...' }}">
+        <label>{{ t('field.google_key') }}
+          <input type="password" name="google_api_key" placeholder="{{ t('placeholder.saved_secret') if settings.google_api_key else 'AIzaSy...' }}">
         </label>
-        <label>Google model
+        <label>{{ t('field.google_model') }}
           <input type="text" name="google_model" value="{{ settings.google_model }}">
         </label>
-        <label>Ollama base URL
+        <label>{{ t('field.ollama_url') }}
           <input type="text" name="ollama_base_url" value="{{ settings.ollama_base_url }}">
         </label>
-        <label>Ollama model (must already be pulled)
+        <label>{{ t('field.ollama_model') }}
           <input type="text" name="ollama_model" value="{{ settings.ollama_model }}">
         </label>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Email</h2>
-      <p class="muted">Used to send applications/replies (SMTP) and read the inbox for responses (IMAP). For Gmail, use an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">app password</a>, not your normal password.</p>
+      <h2>{{ t('settings.email') }}</h2>
+      <p class="muted">{{ t('settings.email_hint') }}</p>
       <div class="field-grid">
-        <label>Email address
+        <label>{{ t('field.email_address') }}
           <input type="email" name="email_address" value="{{ settings.email_address }}" placeholder="you@example.com">
         </label>
-        <label>App password
-          <input type="password" name="email_password" placeholder="{{ '•••• saved — leave blank to keep' if settings.email_password else '16-character app password' }}">
+        <label>{{ t('field.app_password') }}
+          <input type="password" name="email_password" placeholder="{{ t('placeholder.saved_secret') if settings.email_password else '16-character app password' }}">
         </label>
       </div>
       <div class="field-row preset-row">
-        <span class="muted">Quick fill:</span>
+        <span class="muted">{{ t('settings.quick_fill') }}</span>
         {% for key, preset in presets.items() %}
           <button type="button" class="btn btn-ghost" data-preset="{{ key }}"
             data-imap-host="{{ preset.imap_host }}" data-imap-port="{{ preset.imap_port }}"
@@ -62,49 +62,49 @@
         {% endfor %}
       </div>
       <div class="field-grid">
-        <label>IMAP host <input type="text" name="imap_host" id="imap_host" value="{{ settings.imap_host }}"></label>
-        <label>IMAP port <input type="number" name="imap_port" id="imap_port" value="{{ settings.imap_port }}"></label>
-        <label>SMTP host <input type="text" name="smtp_host" id="smtp_host" value="{{ settings.smtp_host }}"></label>
-        <label>SMTP port <input type="number" name="smtp_port" id="smtp_port" value="{{ settings.smtp_port }}"></label>
+        <label>{{ t('field.imap_host') }} <input type="text" name="imap_host" id="imap_host" value="{{ settings.imap_host }}"></label>
+        <label>{{ t('field.imap_port') }} <input type="number" name="imap_port" id="imap_port" value="{{ settings.imap_port }}"></label>
+        <label>{{ t('field.smtp_host') }} <input type="text" name="smtp_host" id="smtp_host" value="{{ settings.smtp_host }}"></label>
+        <label>{{ t('field.smtp_port') }} <input type="number" name="smtp_port" id="smtp_port" value="{{ settings.smtp_port }}"></label>
       </div>
       <label class="checkbox">
         <input type="checkbox" name="email_auto_send" {{ "checked" if settings.email_auto_send }}>
-        Auto-send replies (uncheck to only draft them for now)
+        {{ t('field.auto_send') }}
       </label>
     </section>
 
     <section class="panel">
-      <h2>Job search</h2>
+      <h2>{{ t('settings.job_search') }}</h2>
       <div class="field-grid">
-        <label>Countries (comma-separated)
+        <label>{{ t('field.countries') }}
           <input type="text" name="target_countries" value="{{ settings.target_countries }}">
         </label>
-        <label>Roles (comma-separated)
+        <label>{{ t('field.roles') }}
           <input type="text" name="target_roles" value="{{ settings.target_roles }}">
         </label>
-        <label>Resume path
+        <label>{{ t('field.resume_path') }}
           <input type="text" name="resume_path" value="{{ settings.resume_path }}">
         </label>
-        <label>Match threshold (0-100)
+        <label>{{ t('field.match_threshold') }}
           <input type="number" name="match_threshold" min="0" max="100" value="{{ settings.match_threshold }}">
         </label>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Application pacing</h2>
-      <p class="muted">Applications are sent this many at a time, then JobPilot waits before the next batch.</p>
+      <h2>{{ t('settings.pacing') }}</h2>
+      <p class="muted">{{ t('settings.pacing_hint') }}</p>
       <div class="field-grid">
-        <label>Batch size
+        <label>{{ t('field.batch_size') }}
           <input type="number" name="application_batch_size" min="1" value="{{ settings.application_batch_size }}">
         </label>
-        <label>Minutes between batches
+        <label>{{ t('field.batch_interval') }}
           <input type="number" name="application_batch_interval_minutes" min="0" value="{{ settings.application_batch_interval_minutes }}">
         </label>
       </div>
     </section>
 
-    <button type="submit" class="btn btn-primary">Save settings</button>
+    <button type="submit" class="btn btn-primary">{{ t('action.save_settings') }}</button>
   </form>
 
   <script>

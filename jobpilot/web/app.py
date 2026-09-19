@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from jobpilot.core.database import ApplicationRecord, EmailRecord, JobRecord, get_session, init_db
 from jobpilot.core.settings_store import EMAIL_PROVIDER_PRESETS, get_settings, update_settings
+from jobpilot.web.i18n import DEFAULT_LANG, LANGUAGES, translator
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,13 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="JobPilot")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+def _lang_context(request: Request) -> dict:
+    lang = request.cookies.get("lang", DEFAULT_LANG)
+    if lang not in LANGUAGES:
+        lang = DEFAULT_LANG
+    return {"lang": lang, "dir": "rtl" if lang == "ar" else "ltr", "languages": LANGUAGES, "t": translator(lang)}
 
 # In-memory only: which stage last ran and how it went. Resets on restart -
 # that's fine, it's just a status hint on the dashboard, not app state.
@@ -71,6 +79,7 @@ def dashboard(request: Request):
             "stats": stats,
             "last_run": _last_run,
             "settings": settings,
+            **_lang_context(request),
         },
     )
 
@@ -97,8 +106,21 @@ def settings_form(request: Request, saved: int = 0):
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"settings": get_settings(), "presets": EMAIL_PROVIDER_PRESETS, "saved": saved},
+        {
+            "settings": get_settings(),
+            "presets": EMAIL_PROVIDER_PRESETS,
+            "saved": saved,
+            **_lang_context(request),
+        },
     )
+
+
+@app.get("/lang/{code}")
+def set_lang(code: str, request: Request):
+    response = RedirectResponse(request.headers.get("referer", "/"), status_code=303)
+    if code in LANGUAGES:
+        response.set_cookie("lang", code, max_age=60 * 60 * 24 * 365)
+    return response
 
 
 @app.post("/settings")

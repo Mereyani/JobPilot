@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · JobPilot{% endblock %}
+{% block title %}{{ t('dashboard.title') }} · JobPilot{% endblock %}
 {% block content %}
   <header class="page-header">
     <div>
-      <h1>Dashboard</h1>
-      <p class="muted">Searching {{ settings.target_countries }} for “{{ settings.target_roles }}”.</p>
+      <h1>{{ t('dashboard.title') }}</h1>
+      <p class="muted">{{ t('dashboard.subtitle', countries=settings.target_countries, roles=settings.target_roles) }}</p>
     </div>
     <div class="run-bar">
-      {% for stage, label in [("search", "Run search"), ("match", "Run matching"), ("apply", "Send applications"), ("check-email", "Check email")] %}
+      {% for stage, label_key in [("search", "action.run_search"), ("match", "action.run_matching"), ("apply", "action.send_applications"), ("check-email", "action.check_email")] %}
         <form method="post" action="/run/{{ stage }}">
-          <button type="submit" class="btn">{{ label }}</button>
+          <button type="submit" class="btn">{{ t(label_key) }}</button>
         </form>
       {% endfor %}
     </div>
@@ -26,28 +26,28 @@
   <section class="stat-grid">
     <div class="stat-card">
       <span class="stat-value">{{ stats.total_jobs }}</span>
-      <span class="stat-label">Jobs found</span>
+      <span class="stat-label">{{ t('stat.jobs_found') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.matched }}</span>
-      <span class="stat-label">Above match threshold ({{ settings.match_threshold }})</span>
+      <span class="stat-label">{{ t('stat.above_threshold', threshold=settings.match_threshold) }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.applied }}</span>
-      <span class="stat-label">Applications sent</span>
+      <span class="stat-label">{{ t('stat.applications_sent') }}</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">{{ stats.interviews }}</span>
-      <span class="stat-label">Interview replies</span>
+      <span class="stat-label">{{ t('stat.interview_replies') }}</span>
     </div>
   </section>
 
   <section class="panel">
-    <h2>Jobs</h2>
+    <h2>{{ t('section.jobs') }}</h2>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Score</th><th>Title</th><th>Company</th><th>Country</th><th>Source</th><th></th></tr>
+          <tr><th>{{ t('col.score') }}</th><th>{{ t('col.title') }}</th><th>{{ t('col.company') }}</th><th>{{ t('col.country') }}</th><th>{{ t('col.source') }}</th><th></th></tr>
         </thead>
         <tbody>
           {% for job in jobs %}
@@ -57,10 +57,10 @@
             <td>{{ job.company }}</td>
             <td>{{ job.country }}</td>
             <td class="muted">{{ job.source }}</td>
-            <td><a href="{{ job.url }}" target="_blank" rel="noopener">open ↗</a></td>
+            <td><a href="{{ job.url }}" target="_blank" rel="noopener">{{ t('link.open') }}</a></td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="muted">No jobs yet — click “Run search”.</td></tr>
+          <tr><td colspan="6" class="muted">{{ t('empty.jobs') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -68,10 +68,10 @@
   </section>
 
   <section class="panel">
-    <h2>Applications</h2>
+    <h2>{{ t('section.applications') }}</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Job</th><th>Status</th><th>Applied at</th></tr></thead>
+        <thead><tr><th>{{ t('col.job') }}</th><th>{{ t('col.status') }}</th><th>{{ t('col.applied_at') }}</th></tr></thead>
         <tbody>
           {% for app in applications %}
           <tr>
@@ -80,7 +80,7 @@
             <td class="muted">{{ app.applied_at or "—" }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="3" class="muted">No applications sent yet.</td></tr>
+          <tr><td colspan="3" class="muted">{{ t('empty.applications') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -88,10 +88,10 @@
   </section>
 
   <section class="panel">
-    <h2>Recent emails</h2>
+    <h2>{{ t('section.recent_emails') }}</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Direction</th><th>Subject</th><th>Category</th><th>From/To</th></tr></thead>
+        <thead><tr><th>{{ t('col.direction') }}</th><th>{{ t('col.subject') }}</th><th>{{ t('col.category') }}</th><th>{{ t('col.from_to') }}</th></tr></thead>
         <tbody>
           {% for msg in emails %}
           <tr>
@@ -101,7 +101,7 @@
             <td class="muted">{{ msg.sender }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="4" class="muted">No emails yet.</td></tr>
+          <tr><td colspan="4" class="muted">{{ t('empty.emails') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
