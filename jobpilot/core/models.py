@@ -11,20 +11,6 @@ class ApplyMethod(str, Enum):
     UNKNOWN = "unknown"
 
 
-class ApplicationStatus(str, Enum):
-    PENDING = "pending"
-    APPLIED = "applied"
-    FAILED = "failed"
-    REPLIED = "replied"
-    INTERVIEW = "interview"
-    REJECTED = "rejected"
-
-
-class EmailDirection(str, Enum):
-    INBOUND = "inbound"
-    OUTBOUND = "outbound"
-
-
 class CandidateProfile(BaseModel):
     """Structured resume data, extracted by the profile agent."""
 
@@ -55,21 +41,3 @@ class JobListing(BaseModel):
     posted_at: datetime | None = None
     match_score: int | None = None
     match_reason: str | None = None
-
-
-class Application(BaseModel):
-    job_external_id: str
-    status: ApplicationStatus = ApplicationStatus.PENDING
-    cover_letter: str | None = None
-    applied_at: datetime | None = None
-    thread_key: str | None = None  # used to correlate inbound replies to this application
-
-
-class EmailMessage(BaseModel):
-    application_thread_key: str | None
-    direction: EmailDirection
-    subject: str
-    body: str
-    sender: str
-    received_at: datetime = Field(default_factory=datetime.utcnow)
-    category: str | None = None  # interview_invite | rejection | request_info | other

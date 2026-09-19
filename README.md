@@ -1,8 +1,15 @@
 # JobPilot
 
-A small multi-agent system that finds jobs matching your resume, applies to
-the ones worth applying to, and manages the email back-and-forth that
-follows - throttled so it doesn't behave like a spam bot.
+A small multi-agent system with one job: search well, find a real contact
+email for each matching posting, send a tailored application, and handle
+the replies that come back - all from a local dashboard, throttled so it
+doesn't behave like a spam bot.
+
+Deliberately not in scope: logging into LinkedIn/Indeed/etc. and
+driving their application forms. That requires automating a site whose
+Terms of Service restrict it, which risks your account and adds a lot of
+fragile complexity for a personal tool. The whole "apply" step here is
+just: find an email, write a good letter, send it.
 
 ## How it works
 
@@ -11,15 +18,18 @@ resume.pdf ──▶ Profile Agent ──▶ candidate profile (skills, experien
                                         │
                  ┌──────────────────────┘
                  ▼
-          Search Agent  ──▶ job connectors (Bayt, optionally LinkedIn/Indeed)
-                 │            searched across your target countries
+          Search Agent  ──▶ Bayt (public search pages, robots.txt-permitted)
+                 │            across whichever countries you configure
                  ▼
-         Matching Agent  ──▶ Claude scores every job 0-100 against your profile
+         Matching Agent  ──▶ your chosen AI scores every job 0-100 against your profile
+                              (seniority is a hard gate - a "Senior/Staff/Lead"
+                              posting scores low even with matching skills if
+                              it's above your actual experience level)
                  │
                  ▼
-       Application Agent ──▶ writes a tailored cover letter, submits the
-                              application, N at a time with a cooldown in
-                              between (see "Rate limiting" below)
+       Application Agent ──▶ finds a contact email on the listing page, writes
+                              a tailored cover letter, sends it - N at a time
+                              with a cooldown in between
                  │
                  ▼
           Email Agent    ──▶ watches your inbox, classifies replies
@@ -27,18 +37,33 @@ resume.pdf ──▶ Profile Agent ──▶ candidate profile (skills, experien
                               and drafts + sends a reply
 ```
 
-Each stage is a separate agent module under `jobpilot/agents/`, coordinated
-by `jobpilot/orchestrator.py`. You can also run any single stage from the
-CLI (see below) instead of the full pipeline.
+Each stage is a separate module under `jobpilot/agents/`, coordinated by
+`jobpilot/orchestrator.py`. The dashboard (`jobpilot/web/`) lets you trigger
+any stage by hand and see what it did.
 
 ## Quickstart
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-playwright install chromium   # only needed if you enable LinkedIn/Indeed
-cp .env.example .env          # then fill in your API key, email creds, etc.
+playwright install chromium   # needed once - see "Job sources" below
+jobpilot serve
 ```
+
+Open `http://127.0.0.1:8000/settings` and fill in:
+
+- **AI provider** - Anthropic (Claude), Google (Gemini), or Ollama (any
+  model running locally - no API key, useful if you'd rather not use a
+  hosted provider or don't have a key for one). Nothing is pre-filled;
+  every user of this repo brings their own key (or their own local model).
+- **Email** - the address JobPilot sends from and reads replies on, plus
+  an app password (for Gmail: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
+  Quick-fill buttons set the right IMAP/SMTP host for Gmail/Outlook/Yahoo.
+- **Job search** - target countries, role keywords, path to your resume PDF.
+- **Application pacing** - applications per batch and minutes between batches.
+
+Then from the dashboard (`/`), click through **Run search → Run matching →
+Send applications → Check email**, or run the same steps from the CLI:
 
 ```bash
 jobpilot parse-profile --resume ./data/resume.pdf
@@ -46,63 +71,57 @@ jobpilot search
 jobpilot match
 jobpilot apply
 jobpilot check-email
-# or, the whole pipeline in one go:
-jobpilot run
+jobpilot run          # the whole pipeline, once
 ```
 
 ## Rate limiting
 
-`APPLICATION_BATCH_SIZE` and `APPLICATION_BATCH_INTERVAL_MINUTES` in `.env`
-control the pace of outbound applications - by default, 10 applications,
-then a 10 minute pause, repeated until the queue (jobs above
-`MATCH_THRESHOLD` that haven't been applied to yet) is empty. This is
-implemented in `jobpilot/core/rate_limiter.py` and is deliberately simple:
-it's a cooldown between fixed-size batches, not a sliding window.
+`application_batch_size` / `application_batch_interval_minutes` in
+Settings control the pace of outbound applications - by default, 10
+applications, then a 10 minute pause, repeated until the queue (jobs above
+the match threshold that haven't been applied to yet) is empty. Implemented
+in `jobpilot/core/rate_limiter.py`: a cooldown between fixed-size batches,
+not a sliding window.
 
-## Job sources, and their real status
+## Job sources
 
-| Connector | Discovery | Auto-apply | Notes |
-|---|---|---|---|
-| Bayt | ✅ works today | ❌ not implemented | Public search pages, allowed by `robots.txt`, no login needed. Applying requires a logged-in session - contributions welcome. |
-| LinkedIn | ⚠️ best-effort, off by default | ❌ intentionally not implemented | See "Risks" below. |
-| Indeed | ⚠️ best-effort, off by default | ❌ intentionally not implemented | See "Risks" below. |
+Currently just **Bayt** (`jobpilot/connectors/bayt.py`): its search-results
+pages are public and allowed by `robots.txt`, no login involved - but the
+site sits behind Cloudflare's bot-challenge middleware, which blocks a
+plain HTTP request regardless of what robots.txt says. So this connector
+renders the page with headless Chromium (Playwright) purely to get past
+that JS challenge; no account, no session, nothing credential-shaped. Same
+story for the contact-email lookup in `jobpilot/core/email_extract.py` - it
+tries a plain request first and only falls back to a headless browser if
+the response looks challenge-walled. Adding another job source means
+implementing `search()` in `jobpilot/connectors/base.py`'s `JobConnector`
+interface - see CONTRIBUTING.md.
 
-**In plain terms: out of the box, JobPilot discovers and scores real jobs
-on Bayt across Syria/Turkey/Saudi Arabia (or any countries you configure),
-and fully automates the email side of applying and replying. Automatic
-form-submission on LinkedIn/Indeed/Bayt itself is not implemented** - those
-flows need a logged-in, authenticated session per site, which is exactly
-the part with the most ToS/account-risk (see below), so it was left as an
-explicit extension point rather than shipped by default.
+Finding a contact email per job is best-effort: `jobpilot/core/email_extract.py`
+looks for one on the listing page. When it can't find one, the application
+is marked `failed` in the dashboard for you to follow up on manually rather
+than guessing.
 
-The most promising path to real end-to-end auto-apply without that risk is
-adding connectors for ATS systems that expose public application forms or
-APIs (Greenhouse, Lever, SmartRecruiters, Workday) - PRs welcome.
+## Risks and privacy
 
-## Risks - read before enabling LinkedIn/Indeed
-
-- LinkedIn's and Indeed's Terms of Service prohibit automated
-  scraping/applying. Running `linkedin.py` / `indeed.py` (both **off by
-  default**) can get your personal account rate-limited or banned. This
-  project will never add CAPTCHA-solving or bot-detection evasion - if a
-  site blocks the plain, visible browser session these connectors drive,
-  that's the site telling you to stop.
 - Auto-sending emails on your behalf (applications and replies) is
   powerful but not infallible - the email agent classifies and drafts with
-  an LLM. Set `EMAIL_AUTO_SEND=false` in `.env` to have it draft without
+  an LLM. Uncheck "Auto-send replies" in Settings to have it draft without
   sending if you'd rather review first.
-- Your resume and any parsed profile data stay local (SQLite under
-  `data/`, gitignored). Don't commit real personal data into this repo if
-  you fork it publicly - use `examples/sample_profile.json` as a
-  reference shape instead.
+- Your resume, parsed profile, API keys, and email password all live in
+  the local SQLite database under `data/` (gitignored) - never in a file
+  that gets committed. If you fork this repo publicly, don't hardcode your
+  own credentials anywhere in source; use the Settings page.
 
 ## Project layout
 
 ```
 jobpilot/
   agents/        profile, search, matching, application, email agents
-  connectors/    one module per job source, all implementing connectors/base.py
-  core/          config, database, pydantic models, LLM helper, rate limiter
+  connectors/    one module per job source (implements connectors/base.py)
+  core/          settings store (DB-backed), database, models, LLM
+                 provider abstraction, rate limiter, email extraction
+  web/           the dashboard (FastAPI + Jinja2 templates)
   orchestrator.py
   cli.py
 tests/
@@ -111,9 +130,8 @@ examples/sample_profile.json
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues: a Greenhouse/Lever
-connector, more job-board connectors for a specific country, or improving
-the email classifier's prompt.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues: another job
+connector, a third AI provider, or improving the email classifier's prompt.
 
 ## License
 

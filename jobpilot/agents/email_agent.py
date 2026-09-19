@@ -2,6 +2,8 @@
 and (optionally) auto-respond to.
 
 Uses plain IMAP/SMTP so it works with any provider, not just Gmail/Outlook.
+Only mail carrying JobPilot's own [JobPilot:<thread_key>] tag is ever read,
+classified, or replied to - see `poll_inbox` for why that matters.
 """
 
 import email
@@ -14,7 +16,7 @@ from email.mime.text import MIMEText
 
 from jobpilot.core.database import ApplicationRecord, EmailRecord, get_session
 from jobpilot.core.llm import ask_json, ask_text
-from jobpilot.config import settings
+from jobpilot.core.settings_store import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +40,18 @@ def build_subject(job_title: str, company: str, thread_key: str) -> str:
 
 
 def send_email(to_address: str, subject: str, body: str) -> None:
-    if not settings.smtp_host:
-        raise RuntimeError("SMTP is not configured - set SMTP_* in .env")
+    settings = get_settings()
+    if not settings.smtp_host or not settings.email_address:
+        raise RuntimeError("Email is not configured - set it on the Settings page.")
     message = MIMEText(body)
     message["Subject"] = subject
-    message["From"] = settings.smtp_user
+    message["From"] = settings.email_address
     message["To"] = to_address
 
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
         server.starttls()
-        server.login(settings.smtp_user, settings.smtp_password)
-        server.sendmail(settings.smtp_user, [to_address], message.as_string())
+        server.login(settings.email_address, settings.email_password)
+        server.sendmail(settings.email_address, [to_address], message.as_string())
 
 
 def _decode(value: str | None) -> str:
@@ -71,34 +74,55 @@ def _extract_body(msg: email.message.Message) -> str:
 
 
 def poll_inbox(limit: int = 20) -> int:
-    """Fetch unseen inbound emails, classify them, correlate them to an
-    application by the [JobPilot:<thread_key>] tag, and (if
-    EMAIL_AUTO_SEND) draft + send a reply. Returns the number processed.
+    """Look at unseen inbox mail, but only ever act on messages that carry
+    our own [JobPilot:<thread_key>] tag AND match a real application we
+    sent - everything else (personal mail, newsletters, unrelated
+    notifications) is left completely alone: not fetched in full, not
+    marked read, not classified, not replied to. Returns the number of
+    genuine application replies processed.
     """
-    if not settings.imap_host:
-        raise RuntimeError("IMAP is not configured - set IMAP_* in .env")
+    settings = get_settings()
+    if not settings.imap_host or not settings.email_address:
+        raise RuntimeError("Email is not configured - set it on the Settings page.")
 
     processed = 0
     with imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port) as imap:
-        imap.login(settings.imap_user, settings.imap_password)
+        imap.login(settings.email_address, settings.email_password)
         imap.select("INBOX")
         status, data = imap.search(None, "UNSEEN")
         if status != "OK":
             return 0
-        message_ids = data[0].split()[:limit]
+        message_ids = data[0].split()
 
         with get_session() as session:
+            known_threads = {
+                row.thread_key
+                for row in session.query(ApplicationRecord.thread_key).filter(
+                    ApplicationRecord.thread_key.isnot(None)
+                )
+            }
+
             for msg_id in message_ids:
-                status, msg_data = imap.fetch(msg_id, "(RFC822)")
+                if processed >= limit:
+                    break
+
+                # PEEK never sets \Seen - mail we skip stays exactly as the
+                # user left it.
+                status, header_data = imap.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+                if status != "OK" or not header_data or not header_data[0]:
+                    continue
+                subject = _decode(email.message_from_bytes(header_data[0][1]).get("Subject"))
+                match = TAG_RE.search(subject)
+                thread_key = match.group(1) if match else None
+                if thread_key is None or thread_key not in known_threads:
+                    continue  # not a reply to a JobPilot application - ignore entirely
+
+                status, msg_data = imap.fetch(msg_id, "(BODY.PEEK[])")
                 if status != "OK" or not msg_data or not msg_data[0]:
                     continue
                 msg = email.message_from_bytes(msg_data[0][1])
-                subject = _decode(msg.get("Subject"))
                 sender = _decode(msg.get("From"))
                 body = _extract_body(msg)
-
-                match = TAG_RE.search(subject)
-                thread_key = match.group(1) if match else None
 
                 try:
                     category = ask_json(CLASSIFY_SYSTEM_PROMPT, f"Subject: {subject}\n\n{body}")["category"]
@@ -117,13 +141,7 @@ def poll_inbox(limit: int = 20) -> int:
                     )
                 )
 
-                application = None
-                if thread_key:
-                    application = (
-                        session.query(ApplicationRecord)
-                        .filter_by(thread_key=thread_key)
-                        .first()
-                    )
+                application = session.query(ApplicationRecord).filter_by(thread_key=thread_key).first()
                 if application:
                     application.status = (
                         "interview" if category == "interview_invite" else application.status
@@ -143,7 +161,7 @@ def poll_inbox(limit: int = 20) -> int:
                                 direction="outbound",
                                 subject=f"Re: {subject}",
                                 body=reply_body,
-                                sender=settings.smtp_user,
+                                sender=settings.email_address,
                                 category=category,
                             )
                         )

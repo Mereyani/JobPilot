@@ -12,28 +12,33 @@ pytest
 
 ## Adding a job connector
 
-Implement `jobpilot/connectors/base.py`'s `JobConnector` interface:
+Implement `jobpilot/connectors/base.py`'s `JobConnector` interface - just
+`search(keywords, country, limit)`. Prefer official APIs or public,
+robots.txt-permitted pages (like the Bayt connector) over anything that
+requires logging into a site whose Terms of Service restrict automation -
+see "What we won't merge" below.
 
-- `search(keywords, country, limit)` - required.
-- `apply(job, application)` - optional; raise `NotImplementedError` if the
-  source has no safe/legitimate auto-apply path yet.
-- Set `tos_risk = True` if the connector automates a site whose Terms of
-  Service restrict scripted access, and gate it behind an
-  `ENABLE_<NAME>_CONNECTOR` setting in `jobpilot/config.py`, off by
-  default - see `linkedin.py` / `indeed.py` for the pattern.
+## Adding an AI provider
 
-Prefer official APIs or public, robots.txt-permitted pages (like the Bayt
-connector) over authenticated browser automation wherever the job source
-offers one.
+`jobpilot/core/llm.py` dispatches on `RuntimeSettings.llm_provider`. To add
+one: write a `_yourprovider_generate(settings, system, user, max_tokens,
+json_mode) -> str` function, register it in the `_PROVIDERS` dict, and add
+the matching fields (`yourprovider_api_key`, `yourprovider_model`) to
+`RuntimeSettings` in `jobpilot/core/settings_store.py` plus a radio option
+in `jobpilot/web/templates/settings.html`.
 
 ## What we won't merge
 
 - CAPTCHA-solving or anti-bot-detection evasion of any kind.
+- Automating a login-gated flow (LinkedIn/Indeed-style "Easy Apply", etc.)
+  on a site whose Terms of Service prohibit it. JobPilot's apply step is
+  intentionally email-only for this reason.
 - Anything that scrapes or applies at a volume/speed clearly meant to
   evade a platform's own rate limits, rather than working within the
   `BatchRateLimiter` pattern already in `core/rate_limiter.py`.
-- Real personal data (resumes, emails, tokens) committed anywhere in the
-  repo, including in tests or examples.
+- Real personal data (resumes, emails, API keys) committed anywhere in the
+  repo, including in tests or examples. All of that belongs in the local,
+  gitignored database via the Settings page - never in source.
 
 ## Tests
 

@@ -9,11 +9,26 @@ from jobpilot.core.models import CandidateProfile
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You score how well a candidate matches a job posting.
+SYSTEM_PROMPT = """You score how well a candidate matches a job posting, for
+someone who wants to apply only to jobs they are actually qualified for -
+not stretch roles.
+
+Seniority fit is a hard gate, not just one factor among others: infer the
+candidate's experience level from their profile (years of relevant work
+experience, whether they are a recent graduate/junior, etc.), and infer the
+job's required level from its title and description (e.g. "Senior",
+"Staff", "Principal", "Lead", or years-of-experience requirements). If the
+job clearly requires meaningfully more seniority than the candidate has,
+cap the score at 30 regardless of how well the skills otherwise match - a
+skills match does not make up for being under-qualified on seniority.
+Within that constraint, score skills/domain overlap normally.
+
 Return a JSON object with exactly two keys:
-score (integer 0-100, where 100 is a perfect match on skills/seniority/domain),
+score (integer 0-100, where 100 is a strong match on both skills and
+seniority level),
 reason (one or two sentences explaining the score, mentioning the strongest
-match and the biggest gap)."""
+match and the biggest gap - explicitly note it if seniority was the
+limiting factor)."""
 
 
 def _score(profile: CandidateProfile, job: JobRecord) -> tuple[int, str]:

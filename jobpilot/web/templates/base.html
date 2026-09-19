@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}JobPilot{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">JP</span>
+        <span class="brand-name">JobPilot</span>
+      </div>
+      <nav>
+        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+        <a href="/settings" class="{{ 'active' if request.url.path == '/settings' else '' }}">Settings</a>
+      </nav>
+      <a class="repo-link" href="https://github.com/Mereyani/JobPilot" target="_blank" rel="noopener">GitHub ↗</a>
+    </aside>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

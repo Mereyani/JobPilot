@@ -68,5 +68,17 @@ def run() -> None:
     click.echo(result)
 
 
+@cli.command("serve")
+@click.option("--host", default=None, help="Defaults to WEB_HOST in .env, or 127.0.0.1.")
+@click.option("--port", default=None, type=int, help="Defaults to WEB_PORT in .env, or 8000.")
+def serve(host: str | None, port: int | None) -> None:
+    """Launch the dashboard - configure settings and watch jobs/applications/emails."""
+    import uvicorn
+
+    from jobpilot.config import settings
+
+    uvicorn.run("jobpilot.web.app:app", host=host or settings.web_host, port=port or settings.web_port)
+
+
 if __name__ == "__main__":
     cli()

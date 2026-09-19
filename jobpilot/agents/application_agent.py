@@ -1,6 +1,9 @@
-"""Generates a tailored cover letter and submits an application for every
-job above the match threshold, throttled to
-`APPLICATION_BATCH_SIZE` applications per `APPLICATION_BATCH_INTERVAL_MINUTES`.
+"""The whole "apply" step, in one sentence: find a contact email on the
+job's listing page, write a tailored cover letter, send it - N applications
+at a time with a cooldown in between.
+
+No platform-specific form-filling, no browser automation: if a listing has
+no discoverable email, it's marked failed for manual follow-up instead.
 """
 
 import logging
@@ -8,48 +11,26 @@ from datetime import datetime
 
 from jobpilot.agents.email_agent import build_subject, send_email
 from jobpilot.agents.profile_agent import load_profile
-from jobpilot.config import settings
-from jobpilot.connectors.bayt import BaytConnector
 from jobpilot.core.database import ApplicationRecord, JobRecord, get_session
+from jobpilot.core.email_extract import find_contact_email_on_page
 from jobpilot.core.llm import ask_text
-from jobpilot.core.models import Application, ApplicationStatus, ApplyMethod, CandidateProfile, JobListing
+from jobpilot.core.models import ApplyMethod, CandidateProfile
 from jobpilot.core.rate_limiter import BatchRateLimiter
+from jobpilot.core.settings_store import get_settings
 
 logger = logging.getLogger(__name__)
 
 COVER_LETTER_SYSTEM_PROMPT = """You write a concise, specific cover letter
-(150-250 words) for a job application. Use only facts present in the
+(150-250 words) for a job application email. Use only facts present in the
 candidate profile - never invent experience. Reference 1-2 concrete details
 from the job description that match the candidate's background. Output only
 the letter body, no subject line or salutation placeholders like "[Company]"."""
 
 
-def _connectors_by_source() -> dict:
-    connectors = {"bayt": BaytConnector()}
-    if settings.enable_linkedin_connector:
-        from jobpilot.connectors.linkedin import LinkedInConnector
-
-        connectors["linkedin"] = LinkedInConnector()
-    if settings.enable_indeed_connector:
-        from jobpilot.connectors.indeed import IndeedConnector
-
-        connectors["indeed"] = IndeedConnector()
-    return connectors
-
-
-def _to_job_listing(record: JobRecord) -> JobListing:
-    return JobListing(
-        source=record.source,
-        external_id=record.external_id,
-        title=record.title,
-        company=record.company,
-        location=record.location,
-        country=record.country,
-        url=record.url,
-        description=record.description,
-        apply_method=ApplyMethod(record.apply_method),
-        apply_target=record.apply_target,
-    )
+def _contact_email(job: JobRecord) -> str | None:
+    if job.apply_method == ApplyMethod.EMAIL.value and job.apply_target:
+        return job.apply_target
+    return find_contact_email_on_page(job.url)
 
 
 def _cover_letter(profile: CandidateProfile, job: JobRecord) -> str:
@@ -61,51 +42,39 @@ def _cover_letter(profile: CandidateProfile, job: JobRecord) -> str:
     return ask_text(COVER_LETTER_SYSTEM_PROMPT, user_prompt, max_tokens=500)
 
 
-def _pending_jobs(session) -> list[JobRecord]:
+def _pending_jobs(session, match_threshold: int) -> list[JobRecord]:
     applied_ids = {row.job_external_id for row in session.query(ApplicationRecord.job_external_id).all()}
     jobs = (
         session.query(JobRecord)
         .filter(JobRecord.match_score.isnot(None))
-        .filter(JobRecord.match_score >= settings.match_threshold)
+        .filter(JobRecord.match_score >= match_threshold)
         .order_by(JobRecord.match_score.desc())
         .all()
     )
     return [j for j in jobs if j.external_id not in applied_ids]
 
 
-def _apply_one(session, connectors: dict, profile: CandidateProfile, job: JobRecord) -> None:
-    cover_letter = _cover_letter(profile, job)
+def _apply_one(session, profile: CandidateProfile, job: JobRecord) -> None:
     thread_key = job.external_id
-    application = ApplicationRecord(
-        job_external_id=job.external_id,
-        status="pending",
-        cover_letter=cover_letter,
-        thread_key=thread_key,
-    )
+    application = ApplicationRecord(job_external_id=job.external_id, status="pending", thread_key=thread_key)
+
+    contact_email = _contact_email(job)
+    if not contact_email:
+        logger.info("No contact email found for %s - skipping (manual application needed)", job.external_id)
+        application.status = "failed"
+        session.add(application)
+        session.commit()
+        return
 
     try:
-        if job.apply_method == ApplyMethod.EMAIL.value and job.apply_target:
-            subject = build_subject(job.title, job.company, thread_key)
-            send_email(job.apply_target, subject, cover_letter)
-        else:
-            connector = connectors.get(job.source)
-            if connector is None:
-                raise NotImplementedError(f"No connector available for source '{job.source}'")
-            listing = _to_job_listing(job)
-            application_model = Application(
-                job_external_id=job.external_id,
-                status=ApplicationStatus.PENDING,
-                cover_letter=cover_letter,
-                thread_key=thread_key,
-            )
-            connector.apply(listing, application_model)
+        cover_letter = _cover_letter(profile, job)
+        subject = build_subject(job.title, job.company, thread_key)
+        send_email(contact_email, subject, cover_letter)
+        application.cover_letter = cover_letter
         application.status = "applied"
         application.applied_at = datetime.utcnow()
-    except NotImplementedError as exc:
-        logger.warning("Skipping auto-apply for %s: %s", job.external_id, exc)
-        application.status = "failed"
     except Exception:
-        logger.exception("Failed to apply to %s", job.external_id)
+        logger.exception("Failed to email application for %s", job.external_id)
         application.status = "failed"
 
     session.add(application)
@@ -121,7 +90,7 @@ def run() -> int:
     if profile is None:
         raise RuntimeError("No candidate profile found - run the profile agent first.")
 
-    connectors = _connectors_by_source()
+    settings = get_settings()
     limiter = BatchRateLimiter(
         batch_size=settings.application_batch_size,
         interval_minutes=settings.application_batch_interval_minutes,
@@ -129,9 +98,9 @@ def run() -> int:
 
     attempted = 0
     with get_session() as session:
-        pending = _pending_jobs(session)
+        pending = _pending_jobs(session, settings.match_threshold)
         for batch in limiter.batches(pending):
             for job in batch:
-                _apply_one(session, connectors, profile, job)
+                _apply_one(session, profile, job)
                 attempted += 1
     return attempted

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · JobPilot{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="muted">Searching {{ settings.target_countries }} for “{{ settings.target_roles }}”.</p>
+    </div>
+    <div class="run-bar">
+      {% for stage, label in [("search", "Run search"), ("match", "Run matching"), ("apply", "Send applications"), ("check-email", "Check email")] %}
+        <form method="post" action="/run/{{ stage }}">
+          <button type="submit" class="btn">{{ label }}</button>
+        </form>
+      {% endfor %}
+    </div>
+  </header>
+
+  {% if last_run %}
+  <div class="status-strip">
+    {% for stage, status in last_run.items() %}
+      <span class="status-chip"><b>{{ stage }}</b>: {{ status }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <section class="stat-grid">
+    <div class="stat-card">
+      <span class="stat-value">{{ stats.total_jobs }}</span>
+      <span class="stat-label">Jobs found</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ stats.matched }}</span>
+      <span class="stat-label">Above match threshold ({{ settings.match_threshold }})</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ stats.applied }}</span>
+      <span class="stat-label">Applications sent</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ stats.interviews }}</span>
+      <span class="stat-label">Interview replies</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Jobs</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Score</th><th>Title</th><th>Company</th><th>Country</th><th>Source</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for job in jobs %}
+          <tr>
+            <td>{% if job.match_score is not none %}<span class="badge {{ 'badge-good' if job.match_score >= settings.match_threshold else 'badge-mute' }}">{{ job.match_score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{{ job.title }}</td>
+            <td>{{ job.company }}</td>
+            <td>{{ job.country }}</td>
+            <td class="muted">{{ job.source }}</td>
+            <td><a href="{{ job.url }}" target="_blank" rel="noopener">open ↗</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">No jobs yet — click “Run search”.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Applications</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job</th><th>Status</th><th>Applied at</th></tr></thead>
+        <tbody>
+          {% for app in applications %}
+          <tr>
+            <td>{{ app.job_external_id }}</td>
+            <td><span class="badge badge-{{ app.status }}">{{ app.status }}</span></td>
+            <td class="muted">{{ app.applied_at or "—" }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="muted">No applications sent yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Recent emails</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Direction</th><th>Subject</th><th>Category</th><th>From/To</th></tr></thead>
+        <tbody>
+          {% for msg in emails %}
+          <tr>
+            <td><span class="badge {{ 'badge-good' if msg.direction == 'outbound' else 'badge-mute' }}">{{ msg.direction }}</span></td>
+            <td>{{ msg.subject }}</td>
+            <td class="muted">{{ msg.category or "—" }}</td>
+            <td class="muted">{{ msg.sender }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="muted">No emails yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

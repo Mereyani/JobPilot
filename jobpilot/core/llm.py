@@ -1,38 +1,117 @@
+"""Talks to whichever AI provider the user picked on the Settings page.
+
+Three providers are supported: Anthropic (Claude), Google (Gemini, via the
+`google-genai` SDK - the current one as of the Gemini 3 generation; the
+older `google-generativeai` package is deprecated), and Ollama (any model
+running locally - no API key needed, useful as a fallback if neither
+hosted provider is available). Adding another provider means adding one
+`_x_generate()` function below, registering it in `_PROVIDERS`, and adding
+its settings fields - the rest of the app only calls `ask_json` / `ask_text`.
+"""
+
 import json
+import logging
+import time
 from typing import Any
 
-from anthropic import Anthropic
+from jobpilot.core.settings_store import RuntimeSettings, get_settings
 
-from jobpilot.config import settings
+logger = logging.getLogger(__name__)
 
-_client: Anthropic | None = None
-
-
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        if not settings.anthropic_api_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is not set. Add it to your .env file."
-            )
-        _client = Anthropic(api_key=settings.anthropic_api_key)
-    return _client
+# Free-tier API keys (Google's in particular, at 5 requests/minute) run out
+# of quota fast once you're scoring dozens of jobs back to back. Rather than
+# assume a fixed pace that would needlessly throttle a paid key, retry with
+# backoff only when a call actually hits a rate limit.
+_RATE_LIMIT_MARKERS = ("429", "RESOURCE_EXHAUSTED", "rate_limit", "overloaded")
+_RETRY_DELAYS_SECONDS = (15, 30, 60)
 
 
-def ask_json(system: str, user: str, max_tokens: int = 1500) -> dict[str, Any]:
-    """Send a prompt that must return a single JSON object, and parse it.
+def _anthropic_generate(settings: RuntimeSettings, system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    from anthropic import Anthropic
 
-    Instructs the model to respond with JSON only, and raises a clear error
-    if it doesn't - callers should treat this as retryable.
-    """
-    client = get_client()
+    if not settings.anthropic_api_key:
+        raise RuntimeError("No Anthropic API key configured - set one on the Settings page.")
+
+    client = Anthropic(api_key=settings.anthropic_api_key)
+    system_prompt = system
+    if json_mode:
+        system_prompt += "\n\nRespond with a single valid JSON object and nothing else."
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=max_tokens,
-        system=system + "\n\nRespond with a single valid JSON object and nothing else.",
+        system=system_prompt,
         messages=[{"role": "user", "content": user}],
     )
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
+def _google_generate(settings: RuntimeSettings, system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    from google import genai
+    from google.genai import types
+
+    if not settings.google_api_key:
+        raise RuntimeError("No Google API key configured - set one on the Settings page.")
+
+    client = genai.Client(api_key=settings.google_api_key)
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+        max_output_tokens=max_tokens,
+        response_mime_type="application/json" if json_mode else "text/plain",
+    )
+    response = client.models.generate_content(model=settings.google_model, contents=user, config=config)
+    return (response.text or "").strip()
+
+
+def _ollama_generate(settings: RuntimeSettings, system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    from ollama import Client
+
+    if not settings.ollama_model:
+        raise RuntimeError("No Ollama model configured - set one on the Settings page.")
+
+    client = Client(host=settings.ollama_base_url)
+    response = client.chat(
+        model=settings.ollama_model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        format="json" if json_mode else None,
+        options={"num_predict": max_tokens},
+    )
+    return response["message"]["content"].strip()
+
+
+_PROVIDERS = {
+    "anthropic": _anthropic_generate,
+    "google": _google_generate,
+    "ollama": _ollama_generate,
+}
+
+
+def _generate(system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    settings = get_settings()
+    generate_fn = _PROVIDERS.get(settings.llm_provider)
+    if generate_fn is None:
+        raise RuntimeError(
+            f"Unknown llm_provider '{settings.llm_provider}' - expected one of {list(_PROVIDERS)}."
+        )
+
+    for attempt, delay in enumerate((0, *_RETRY_DELAYS_SECONDS)):
+        if delay:
+            logger.warning("Rate-limited by %s, retrying in %ds", settings.llm_provider, delay)
+            time.sleep(delay)
+        try:
+            return generate_fn(settings, system, user, max_tokens, json_mode)
+        except Exception as exc:
+            is_rate_limit = any(marker in str(exc) for marker in _RATE_LIMIT_MARKERS)
+            if not is_rate_limit or attempt == len(_RETRY_DELAYS_SECONDS):
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def ask_json(system: str, user: str, max_tokens: int = 1500) -> dict[str, Any]:
+    """Send a prompt that must return a single JSON object, and parse it."""
+    text = _generate(system, user, max_tokens, json_mode=True)
     if text.startswith("```"):
         text = text.strip("`")
         if text.startswith("json"):
@@ -44,11 +123,4 @@ def ask_json(system: str, user: str, max_tokens: int = 1500) -> dict[str, Any]:
 
 
 def ask_text(system: str, user: str, max_tokens: int = 1500) -> str:
-    client = get_client()
-    response = client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text").strip()
+    return _generate(system, user, max_tokens, json_mode=False)

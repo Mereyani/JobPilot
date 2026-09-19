@@ -64,6 +64,19 @@ class ProfileRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SettingsRecord(Base):
+    """Single-row table holding every per-user setting (AI provider + key,
+    email credentials, search targets, rate limits). Nothing here comes
+    from a checked-in file - it's all entered through the dashboard's
+    Settings page so the same codebase works for anyone who runs it."""
+
+    __tablename__ = "settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 _engine = create_engine(settings.database_url, echo=False)
 SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
 

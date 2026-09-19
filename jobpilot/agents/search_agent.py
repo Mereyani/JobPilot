@@ -1,27 +1,18 @@
-"""Runs every enabled connector across the configured countries/roles and
-upserts results into the jobs table."""
+"""Runs every connector across the configured countries/roles and upserts
+results into the jobs table."""
 
 import logging
 
-from jobpilot.config import settings
 from jobpilot.connectors.bayt import BaytConnector
 from jobpilot.core.database import JobRecord, get_session
 from jobpilot.core.models import JobListing
+from jobpilot.core.settings_store import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def _active_connectors() -> list:
-    connectors = [BaytConnector()]
-    if settings.enable_linkedin_connector:
-        from jobpilot.connectors.linkedin import LinkedInConnector
-
-        connectors.append(LinkedInConnector())
-    if settings.enable_indeed_connector:
-        from jobpilot.connectors.indeed import IndeedConnector
-
-        connectors.append(IndeedConnector())
-    return connectors
+def _connectors() -> list:
+    return [BaytConnector()]
 
 
 def _upsert(session, job: JobListing) -> bool:
@@ -48,13 +39,14 @@ def _upsert(session, job: JobListing) -> bool:
 
 
 def run(limit_per_query: int = 25) -> int:
-    """Search all countries x roles across all enabled connectors.
+    """Search all countries x roles across every connector.
 
     Returns the number of newly discovered jobs.
     """
+    settings = get_settings()
     new_count = 0
     with get_session() as session:
-        for connector in _active_connectors():
+        for connector in _connectors():
             for country in settings.countries:
                 try:
                     jobs = connector.search(settings.roles, country, limit=limit_per_query)
