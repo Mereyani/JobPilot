@@ -80,6 +80,36 @@ def find_contact_email_on_page(url: str, timeout: float = 15.0) -> str | None:
 
 _GENERIC_COMPANY_NAMES = {"confidential company", "unknown", ""}
 
+# Legal-form suffixes carry no identifying signal, so they're dropped before
+# comparing a company name against an email's domain.
+_COMPANY_SUFFIXES = {"llc", "inc", "ltd", "limited", "co", "corp", "corporation", "gmbh", "sa", "plc", "company"}
+
+
+def _company_tokens(company: str) -> set[str]:
+    words = re.split(r"[^a-z0-9]+", company.lower())
+    return {w for w in words if len(w) >= 4 and w not in _COMPANY_SUFFIXES}
+
+
+def _email_matches_company(email: str, company: str) -> bool:
+    """Guard against the search handing back some unrelated site's address.
+
+    Observed for real: searching "Raytheon careers contact email" surfaced a
+    page whose contact address was support@astrologyanswers.com - emailing a
+    candidate's CV there would be worse than finding nothing at all. So an
+    address is only trusted when its domain visibly belongs to the company
+    we searched for. This is deliberately strict: a missed match just falls
+    back to "apply manually", a wrong match mails a stranger.
+    """
+    domain = email.rsplit("@", 1)[-1].lower()
+    # Compare against the registrable-ish label ("careers.acme.co.uk" -> the
+    # whole thing minus the public suffix is hard to get right without a
+    # suffix list, so check every label instead).
+    labels = {label for label in domain.split(".") if len(label) >= 4}
+    tokens = _company_tokens(company)
+    if not tokens or not labels:
+        return False
+    return any(token in label or label in token for token in tokens for label in labels)
+
 
 def _decode_bing_redirect(href: str) -> str | None:
     """Bing wraps every organic result in a `bing.com/ck/a?...&u=a1<b64>`
@@ -141,6 +171,6 @@ def search_company_email(company: str, max_results: int = 4, timeout: float = 20
 
     for url in _bing_search(f'"{company}" careers contact email', max_results, timeout):
         email = find_contact_email_on_page(url, timeout=timeout)
-        if email:
+        if email and _email_matches_company(email, company):
             return email
     return None

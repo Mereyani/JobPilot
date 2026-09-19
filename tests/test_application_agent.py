@@ -117,10 +117,25 @@ def test_contact_email_falls_back_to_company_search_when_page_has_none(session):
         patch("jobpilot.agents.application_agent.find_contact_email_on_page", return_value=None),
         patch("jobpilot.agents.application_agent.search_company_email", return_value="hiring@acme.com") as mock_search,
     ):
-        result = _contact_email(job)
+        result = _contact_email(job, company_search=True)
 
     assert result == "hiring@acme.com"
     mock_search.assert_called_once_with("Acme Corp")
+
+
+def test_contact_email_does_not_search_the_web_unless_opted_in(session):
+    """The web search is the slowest thing in an apply run, so it must stay
+    off unless the user explicitly turned it on in Settings."""
+    job = _make_job(session, company="Acme Corp")
+
+    with (
+        patch("jobpilot.agents.application_agent.find_contact_email_on_page", return_value=None),
+        patch("jobpilot.agents.application_agent.search_company_email") as mock_search,
+    ):
+        result = _contact_email(job)
+
+    assert result is None
+    mock_search.assert_not_called()
 
 
 def test_contact_email_skips_company_search_when_page_has_an_email(session):

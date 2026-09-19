@@ -93,6 +93,11 @@
         </label>
       </div>
       <p class="muted">{{ t('settings.threshold_hint') }}</p>
+      <label class="checkbox">
+        <input type="checkbox" name="company_email_search_enabled" {{ "checked" if settings.company_email_search_enabled }}>
+        {{ t('field.company_email_search') }}
+      </label>
+      <p class="muted">{{ t('settings.company_email_search_hint') }}</p>
     </section>
 
     <section class="panel">
@@ -117,7 +122,10 @@
       </label>
       <div class="field-grid">
         <label>{{ t('field.auto_run_interval') }}
-          <input type="number" name="auto_run_interval_hours" min="0.1" step="0.5" value="{{ settings.auto_run_interval_hours }}">
+          {# step="any": with min="0.1" a fixed step makes the browser reject
+             any value off that ladder - including the stored default of 24,
+             which silently blocked the whole Save button. #}
+          <input type="number" name="auto_run_interval_hours" min="0.1" step="any" value="{{ settings.auto_run_interval_hours }}">
         </label>
       </div>
     </section>

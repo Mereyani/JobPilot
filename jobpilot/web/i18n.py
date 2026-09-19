@@ -105,6 +105,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Jobs scoring at/above the auto-apply threshold are sent automatically. Jobs between the two thresholds show up on the dashboard for you to pick from instead.",
         "ar": "الوظائف التي تصل نسبتها لحد التقديم التلقائي أو أعلى تُرسل تلقائياً. الوظائف بين الحدّين تظهر في اللوحة لتختار منها بنفسك.",
     },
+    "field.company_email_search": {
+        "en": "Search the web for a company email when the listing has none",
+        "ar": "ابحث في الويب عن إيميل الشركة إذا لم يوجد في الإعلان",
+    },
+    "settings.company_email_search_hint": {
+        "en": "Off by default: this is the slowest step JobPilot has (a headless browser per lookup) and it often still finds nothing. With it off, a job whose listing has no email is simply marked “no contact email” for you to apply to by hand.",
+        "ar": "مُعطَّل افتراضياً: هذه أبطأ خطوة في JobPilot (متصفح مخفي لكل عملية بحث) وغالباً لا تجد شيئاً في النهاية. عند تعطيلها، الوظيفة التي لا يوجد في إعلانها إيميل تُعلَّم فقط بـ«لا يوجد إيميل تواصل» لتقدّم عليها يدوياً.",
+    },
     "settings.pacing": {"en": "Application pacing", "ar": "وتيرة إرسال التقديمات"},
     "settings.pacing_hint": {
         "en": "Applications are sent this many at a time, then JobPilot waits before the next batch.",

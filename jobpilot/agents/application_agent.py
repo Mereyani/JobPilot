@@ -41,12 +41,18 @@ only the letter body, no subject line or salutation placeholders like
 "[Company]"."""
 
 
-def _contact_email(job: JobRecord) -> str | None:
+def _contact_email(job: JobRecord, company_search: bool = False) -> str | None:
+    """The listing's own address if it has one, then the listing page, and
+    only then - if the user opted in - a web search for the company's
+    contact address. That last step costs a headless browser per lookup,
+    so it stays off unless asked for (`company_email_search_enabled`)."""
     if job.apply_method == ApplyMethod.EMAIL.value and job.apply_target:
         return job.apply_target
     email = find_contact_email_on_page(job.url)
     if email:
         return email
+    if not company_search:
+        return None
     return search_company_email(job.company)
 
 
@@ -79,7 +85,9 @@ def _eligible_jobs(session, min_score: int, only_ids: set[str] | None = None) ->
     return [j for j in jobs if j.external_id not in handled_ids]
 
 
-def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: str) -> None:
+def _apply_one(
+    session, profile: CandidateProfile, job: JobRecord, resume_path: str, company_search: bool = False
+) -> None:
     thread_key = job.external_id
     # Retrying a previously-failed job updates its existing row instead of
     # piling up duplicate "failed" entries for the same job every run.
@@ -90,7 +98,7 @@ def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: 
     application.thread_key = thread_key
     application.failure_reason = None
 
-    contact_email = _contact_email(job)
+    contact_email = _contact_email(job, company_search=company_search)
     if not contact_email:
         logger.info("No contact email found for %s - skipping (manual application needed)", job.external_id)
         application.status = "failed"
@@ -134,7 +142,13 @@ def _apply_batch(jobs: list[JobRecord], profile: CandidateProfile, resume_path: 
                 # Re-attach a fresh copy of the job row to this session.
                 fresh_job = session.get(JobRecord, job.id)
                 report(f"Applying ({attempted + 1}/{total}): {fresh_job.title} at {fresh_job.company}...")
-                _apply_one(session, profile, fresh_job, resume_path)
+                _apply_one(
+                    session,
+                    profile,
+                    fresh_job,
+                    resume_path,
+                    company_search=settings.company_email_search_enabled,
+                )
                 attempted += 1
                 report(f"{attempted}/{total} applications processed")
     return attempted

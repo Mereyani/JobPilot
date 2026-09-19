@@ -40,6 +40,13 @@ class RuntimeSettings(BaseModel):
     # match_threshold and this are shown in the dashboard for manual
     # selection instead of being sent on their own.
     auto_apply_threshold: int = 90
+    # Off by default because it's the single slowest thing JobPilot does:
+    # when a listing has no email of its own, this searches the web for the
+    # company's contact address, which means a headless browser per search
+    # plus one per candidate result page. Worth minutes per job, and most
+    # of the time the answer is still "no usable address" - so it's an
+    # explicit opt-in rather than something every apply run pays for.
+    company_email_search_enabled: bool = False
 
     # --- Outbound application pacing ---
     application_batch_size: int = 10
