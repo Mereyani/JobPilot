@@ -1,0 +1,32 @@
+[project]
+name = "jobpilot"
+version = "0.1.0"
+description = "A multi-agent system that finds matching jobs, applies on your behalf, and manages the email follow-up."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.40.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "sqlalchemy>=2.0",
+    "pdfplumber>=0.11",
+    "playwright>=1.46",
+    "beautifulsoup4>=4.12",
+    "requests>=2.32",
+    "click>=8.1",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+jobpilot = "jobpilot.cli:cli"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jobpilot*"]

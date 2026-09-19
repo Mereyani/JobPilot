@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# secrets & local config
+.env
+
+# runtime data (resumes, sqlite db, logs) - never commit personal data
+data/*
+!data/.gitkeep
+
+# editors
+.vscode/
+.idea/
+.DS_Store

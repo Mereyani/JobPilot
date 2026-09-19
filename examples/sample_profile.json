@@ -1,0 +1,33 @@
+{
+  "name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "phone": "+90 500 000 00 00",
+  "location": "Turkey",
+  "headline": "Computer Engineer",
+  "summary": "Computer Engineering graduate with a passion for programming and artificial intelligence, experienced building AI-driven applications end to end.",
+  "skills": [
+    "Python",
+    "C#",
+    "JavaScript",
+    "TensorFlow",
+    "Keras",
+    "Scikit-Learn",
+    "PostgreSQL",
+    "Oracle"
+  ],
+  "languages": {
+    "Arabic": "Native",
+    "Turkish": "Fluent",
+    "English": "Intermediate"
+  },
+  "education": [
+    "M.Sc. in Computer Engineering, Siirt University (in progress)",
+    "B.Sc. in Computer Engineering, Siirt University"
+  ],
+  "experience": [
+    "Software and Database Specialist at a hospital information systems vendor: built core modules and database features for a Hospital Information Management System."
+  ],
+  "links": {
+    "linkedin": "https://linkedin.com/in/example"
+  }
+}
