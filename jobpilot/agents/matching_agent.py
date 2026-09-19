@@ -38,7 +38,7 @@ def _score(profile: CandidateProfile, job: JobRecord) -> tuple[int, str]:
         f"Location: {job.location}\nDescription:\n{job.description}"
     )
     data = ask_json(SYSTEM_PROMPT, user_prompt, max_tokens=300)
-    score = int(data.get("score", 0))
+    score = int(float(data.get("score", 0)))
     reason = str(data.get("reason", ""))
     return max(0, min(100, score)), reason
 

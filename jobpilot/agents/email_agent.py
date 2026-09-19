@@ -9,9 +9,13 @@ classified, or replied to - see `poll_inbox` for why that matters.
 import email
 import imaplib
 import logging
+import mimetypes
+import os
 import re
 import smtplib
 from email.header import decode_header
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from jobpilot.core.database import ApplicationRecord, EmailRecord, get_session
@@ -39,11 +43,24 @@ def build_subject(job_title: str, company: str, thread_key: str) -> str:
     return f"Application for {job_title} at {company} [JobPilot:{thread_key}]"
 
 
-def send_email(to_address: str, subject: str, body: str) -> None:
+def send_email(to_address: str, subject: str, body: str, attachments: list[str] | None = None) -> None:
     settings = get_settings()
     if not settings.smtp_host or not settings.email_address:
         raise RuntimeError("Email is not configured - set it on the Settings page.")
-    message = MIMEText(body)
+
+    attachments = [path for path in (attachments or []) if path and os.path.isfile(path)]
+    if attachments:
+        message = MIMEMultipart()
+        message.attach(MIMEText(body))
+        for path in attachments:
+            content_type, _ = mimetypes.guess_type(path)
+            with open(path, "rb") as f:
+                part = MIMEApplication(f.read(), _subtype=(content_type or "octet-stream").split("/")[-1])
+            part.add_header("Content-Disposition", "attachment", filename=os.path.basename(path))
+            message.attach(part)
+    else:
+        message = MIMEText(body)
+
     message["Subject"] = subject
     message["From"] = settings.email_address
     message["To"] = to_address

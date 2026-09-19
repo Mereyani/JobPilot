@@ -1,17 +1,17 @@
 """The whole "apply" step, in one sentence: find a contact email on the
-job's listing page, write a tailored cover letter, send it - N applications
-at a time with a cooldown in between.
+job's listing page, write a tailored cover letter, send it with the
+candidate's resume attached - N applications at a time with a cooldown in
+between.
 
 No platform-specific form-filling, no browser automation: if a listing has
 no discoverable email, it's marked failed for manual follow-up instead.
 """
 
 import logging
-from datetime import datetime
 
 from jobpilot.agents.email_agent import build_subject, send_email
 from jobpilot.agents.profile_agent import load_profile
-from jobpilot.core.database import ApplicationRecord, JobRecord, get_session
+from jobpilot.core.database import ApplicationRecord, JobRecord, get_session, utcnow
 from jobpilot.core.email_extract import find_contact_email_on_page
 from jobpilot.core.llm import ask_text
 from jobpilot.core.models import ApplyMethod, CandidateProfile
@@ -23,8 +23,11 @@ logger = logging.getLogger(__name__)
 COVER_LETTER_SYSTEM_PROMPT = """You write a concise, specific cover letter
 (150-250 words) for a job application email. Use only facts present in the
 candidate profile - never invent experience. Reference 1-2 concrete details
-from the job description that match the candidate's background. Output only
-the letter body, no subject line or salutation placeholders like "[Company]"."""
+from the job description that match the candidate's background. The
+candidate's resume is attached to this email separately, so you may refer
+to "my attached resume/CV" but do not restate its full contents. Output
+only the letter body, no subject line or salutation placeholders like
+"[Company]"."""
 
 
 def _contact_email(job: JobRecord) -> str | None:
@@ -43,7 +46,14 @@ def _cover_letter(profile: CandidateProfile, job: JobRecord) -> str:
 
 
 def _pending_jobs(session, match_threshold: int) -> list[JobRecord]:
-    applied_ids = {row.job_external_id for row in session.query(ApplicationRecord.job_external_id).all()}
+    # A "failed" attempt (no email found yet, a transient send error, ...)
+    # should be retried on the next run - only a real outcome (sent, or a
+    # reply came back) means this job is done and should never be
+    # attempted again.
+    handled_ids = {
+        row.job_external_id
+        for row in session.query(ApplicationRecord.job_external_id).filter(ApplicationRecord.status != "failed")
+    }
     jobs = (
         session.query(JobRecord)
         .filter(JobRecord.match_score.isnot(None))
@@ -51,12 +61,18 @@ def _pending_jobs(session, match_threshold: int) -> list[JobRecord]:
         .order_by(JobRecord.match_score.desc())
         .all()
     )
-    return [j for j in jobs if j.external_id not in applied_ids]
+    return [j for j in jobs if j.external_id not in handled_ids]
 
 
-def _apply_one(session, profile: CandidateProfile, job: JobRecord) -> None:
+def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: str) -> None:
     thread_key = job.external_id
-    application = ApplicationRecord(job_external_id=job.external_id, status="pending", thread_key=thread_key)
+    # Retrying a previously-failed job updates its existing row instead of
+    # piling up duplicate "failed" entries for the same job every run.
+    application = session.query(ApplicationRecord).filter_by(job_external_id=job.external_id).first()
+    if application is None:
+        application = ApplicationRecord(job_external_id=job.external_id, thread_key=thread_key)
+    application.status = "pending"
+    application.thread_key = thread_key
 
     contact_email = _contact_email(job)
     if not contact_email:
@@ -69,10 +85,10 @@ def _apply_one(session, profile: CandidateProfile, job: JobRecord) -> None:
     try:
         cover_letter = _cover_letter(profile, job)
         subject = build_subject(job.title, job.company, thread_key)
-        send_email(contact_email, subject, cover_letter)
+        send_email(contact_email, subject, cover_letter, attachments=[resume_path])
         application.cover_letter = cover_letter
         application.status = "applied"
-        application.applied_at = datetime.utcnow()
+        application.applied_at = utcnow()
     except Exception:
         logger.exception("Failed to email application for %s", job.external_id)
         application.status = "failed"
@@ -101,6 +117,6 @@ def run() -> int:
         pending = _pending_jobs(session, settings.match_threshold)
         for batch in limiter.batches(pending):
             for job in batch:
-                _apply_one(session, profile, job)
+                _apply_one(session, profile, job, settings.resume_path)
                 attempted += 1
     return attempted

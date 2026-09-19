@@ -30,6 +30,10 @@ _CHALLENGE_MARKERS = ("Just a moment", "cf-browser-verification", "challenges.cl
 
 def find_contact_email(text: str) -> str | None:
     for candidate in EMAIL_RE.findall(text):
+        # The domain character class allows '.', so a sentence-ending
+        # period right after the address (".com.") gets captured too -
+        # strip it rather than send to an address that can't exist.
+        candidate = candidate.rstrip(".")
         lowered = candidate.lower()
         if any(noise in lowered for noise in _NOISE):
             continue

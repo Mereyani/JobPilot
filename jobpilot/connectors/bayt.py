@@ -13,10 +13,19 @@ session, nothing that touches an account.
 Selectors were captured from a live page on 2026-09-19; Bayt can and does
 change its markup, so if `search()` starts returning nothing, re-check the
 selectors below first. PRs welcome.
+
+Bayt serves the same listings under locale-specific paths (`/en/...`,
+`/ar/...`) with only the display text translated - the same job keeps the
+same numeric id across locales (confirmed by inspecting a live listing:
+`/en/.../software-engineer-5483555/` and `/ar/.../%D9%85%D9%87...-5483555/`
+are one posting). So an Arabic-script keyword is searched against the
+`/ar/` path (matching the language local postings are actually written
+in) and results still dedupe correctly against English-path results via
+that shared id.
 """
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -38,8 +47,25 @@ COUNTRY_SLUGS = {
     "ksa": "saudi-arabia",
 }
 
+_ARABIC_RE = re.compile(r"[؀-ۿ]")
+
+
+def _is_arabic(text: str) -> bool:
+    return bool(_ARABIC_RE.search(text))
+
 
 def _slugify(value: str) -> str:
+    """Build the `<role>` segment of a Bayt search URL.
+
+    Bayt's own search matches loosely on this slug rather than requiring an
+    exact title, so for English it's just a lowercase-hyphenated ASCII
+    slug. Arabic keywords need the actual Arabic phrase (spaces -> hyphens,
+    then percent-encoded) - transliterating them to ASCII would search for
+    the wrong thing.
+    """
+    value = value.strip()
+    if _is_arabic(value):
+        return quote(re.sub(r"\s+", "-", value))
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
@@ -62,8 +88,9 @@ class BaytConnector(JobConnector):
             page = browser.new_page(user_agent=USER_AGENT)
             try:
                 for keyword in keywords:
+                    locale = "ar" if _is_arabic(keyword) else "en"
                     role_slug = _slugify(keyword)
-                    url = f"{BASE_URL}/en/{country_slug}/jobs/{role_slug}-jobs/"
+                    url = f"{BASE_URL}/{locale}/{country_slug}/jobs/{role_slug}-jobs/"
                     try:
                         page.goto(url, timeout=20000, wait_until="domcontentloaded")
                         page.wait_for_timeout(int(self.page_load_delay_seconds * 1000))

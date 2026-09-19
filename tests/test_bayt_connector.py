@@ -1,4 +1,4 @@
-from jobpilot.connectors.bayt import BaytConnector
+from jobpilot.connectors.bayt import BaytConnector, _is_arabic, _slugify
 
 SAMPLE_HTML = """
 <ul class="row is-m p0 m0">
@@ -42,3 +42,17 @@ def test_country_slug_mapping():
     assert connector._country_slug("Saudi Arabia") == "saudi-arabia"
     assert connector._country_slug("Turkey") == "turkey"
     assert connector._country_slug("Syria") == "syria"
+
+
+def test_is_arabic_detects_script():
+    assert _is_arabic("مهندس برمجيات") is True
+    assert _is_arabic("Software Engineer") is False
+
+
+def test_slugify_percent_encodes_arabic_instead_of_transliterating():
+    slug = _slugify("مهندس برمجيات")
+    assert slug == "%D9%85%D9%87%D9%86%D8%AF%D8%B3-%D8%A8%D8%B1%D9%85%D8%AC%D9%8A%D8%A7%D8%AA"
+
+
+def test_slugify_english_unchanged():
+    assert _slugify("Machine Learning Engineer") == "machine-learning-engineer"

@@ -1,0 +1,103 @@
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from jobpilot.agents.application_agent import _apply_one, _pending_jobs
+from jobpilot.core.database import ApplicationRecord, Base, JobRecord
+from jobpilot.core.models import CandidateProfile
+
+PROFILE = CandidateProfile(name="Test Candidate", skills=["Python"])
+
+
+@pytest.fixture
+def session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    with Session() as s:
+        yield s
+
+
+def _make_job(session, external_id="bayt:1", match_score=80) -> JobRecord:
+    job = JobRecord(
+        source="bayt",
+        external_id=external_id,
+        title="Software Engineer",
+        company="Acme",
+        url="https://example.com/job/1",
+        apply_method="form",
+        match_score=match_score,
+    )
+    session.add(job)
+    session.commit()
+    return job
+
+
+def test_failed_application_is_retried_not_excluded(session):
+    job = _make_job(session)
+    session.add(ApplicationRecord(job_external_id=job.external_id, status="failed", thread_key=job.external_id))
+    session.commit()
+
+    pending = _pending_jobs(session, match_threshold=70)
+
+    assert [j.external_id for j in pending] == [job.external_id]
+
+
+def test_applied_job_is_excluded_from_pending(session):
+    job = _make_job(session)
+    session.add(ApplicationRecord(job_external_id=job.external_id, status="applied", thread_key=job.external_id))
+    session.commit()
+
+    assert _pending_jobs(session, match_threshold=70) == []
+
+
+def test_interview_and_rejected_jobs_are_excluded(session):
+    j1 = _make_job(session, external_id="bayt:1")
+    j2 = _make_job(session, external_id="bayt:2")
+    session.add(ApplicationRecord(job_external_id=j1.external_id, status="interview"))
+    session.add(ApplicationRecord(job_external_id=j2.external_id, status="rejected"))
+    session.commit()
+
+    assert _pending_jobs(session, match_threshold=70) == []
+
+
+def test_below_threshold_jobs_are_excluded(session):
+    _make_job(session, match_score=50)
+    assert _pending_jobs(session, match_threshold=70) == []
+
+
+def test_retry_updates_existing_row_instead_of_duplicating(session):
+    job = _make_job(session)
+    session.add(ApplicationRecord(job_external_id=job.external_id, status="failed", thread_key=job.external_id))
+    session.commit()
+
+    with (
+        patch("jobpilot.agents.application_agent._contact_email", return_value=None),
+    ):
+        _apply_one(session, PROFILE, job, resume_path="/no/resume.pdf")
+
+    rows = session.query(ApplicationRecord).filter_by(job_external_id=job.external_id).all()
+    assert len(rows) == 1
+    assert rows[0].status == "failed"
+
+
+def test_successful_apply_attaches_resume_and_marks_applied(session, tmp_path):
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4")
+    job = _make_job(session)
+
+    with (
+        patch("jobpilot.agents.application_agent._contact_email", return_value="hiring@acme.com"),
+        patch("jobpilot.agents.application_agent._cover_letter", return_value="Dear hiring team, ..."),
+        patch("jobpilot.agents.application_agent.send_email") as mock_send,
+    ):
+        _apply_one(session, PROFILE, job, resume_path=str(resume))
+
+    mock_send.assert_called_once()
+    assert mock_send.call_args.kwargs["attachments"] == [str(resume)]
+
+    row = session.query(ApplicationRecord).filter_by(job_external_id=job.external_id).one()
+    assert row.status == "applied"
+    assert row.applied_at is not None

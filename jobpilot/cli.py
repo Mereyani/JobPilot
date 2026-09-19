@@ -25,7 +25,7 @@ def parse_profile(resume: str) -> None:
 
 @cli.command("search")
 def search() -> None:
-    """Search all enabled connectors for new jobs."""
+    """Search for new jobs using AI-generated, profile-based keywords."""
     from jobpilot.agents import search_agent
 
     count = search_agent.run()

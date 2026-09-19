@@ -18,8 +18,12 @@ resume.pdf ──▶ Profile Agent ──▶ candidate profile (skills, experien
                                         │
                  ┌──────────────────────┘
                  ▼
-          Search Agent  ──▶ Bayt (public search pages, robots.txt-permitted)
-                 │            across whichever countries you configure
+          Search Agent  ──▶ your AI first turns the profile into 4-8 search
+                              keywords per country (in the language local
+                              postings are usually written in - e.g. Arabic
+                              phrasings for Syria/Saudi Arabia), then Bayt
+                              (public search pages, robots.txt-permitted) is
+                              searched with them
                  ▼
          Matching Agent  ──▶ your chosen AI scores every job 0-100 against your profile
                               (seniority is a hard gate - a "Senior/Staff/Lead"
@@ -28,8 +32,8 @@ resume.pdf ──▶ Profile Agent ──▶ candidate profile (skills, experien
                  │
                  ▼
        Application Agent ──▶ finds a contact email on the listing page, writes
-                              a tailored cover letter, sends it - N at a time
-                              with a cooldown in between
+                              a tailored cover letter, sends it with your resume
+                              attached - N at a time with a cooldown in between
                  │
                  ▼
           Email Agent    ──▶ watches your inbox, classifies replies
@@ -59,7 +63,9 @@ Open `http://127.0.0.1:8000/settings` and fill in:
 - **Email** - the address JobPilot sends from and reads replies on, plus
   an app password (for Gmail: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
   Quick-fill buttons set the right IMAP/SMTP host for Gmail/Outlook/Yahoo.
-- **Job search** - target countries, role keywords, path to your resume PDF.
+- **Job search** - target countries, a fallback role keyword (used only if
+  AI keyword generation fails or no profile is parsed yet), path to your
+  resume PDF, and the match threshold.
 - **Application pacing** - applications per batch and minutes between batches.
 
 Then from the dashboard (`/`), click through **Run search → Run matching →
@@ -97,10 +103,20 @@ the response looks challenge-walled. Adding another job source means
 implementing `search()` in `jobpilot/connectors/base.py`'s `JobConnector`
 interface - see CONTRIBUTING.md.
 
+Bayt serves the same posting under `/en/...` and `/ar/...` (and other
+locale) paths with only the display text translated, keeping the same
+numeric job id - so an Arabic-script keyword is searched against the
+`/ar/` path (where local postings actually live) and still dedupes
+correctly against anything the English-language search also found.
+
 Finding a contact email per job is best-effort: `jobpilot/core/email_extract.py`
 looks for one on the listing page. When it can't find one, the application
-is marked `failed` in the dashboard for you to follow up on manually rather
-than guessing.
+is marked `failed` and retried on the next `apply` run rather than being
+skipped forever - some listings (Bayt's own "Quick Apply" ones especially)
+genuinely never expose a direct email and will keep failing, which is
+expected: that job needs a manual application. Every successful application
+email includes the resume PDF from Settings as an attachment, not just a
+text cover letter.
 
 ## Risks and privacy
 

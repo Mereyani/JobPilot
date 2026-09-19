@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 
 from jobpilot.core.database import ApplicationRecord, EmailRecord, JobRecord, get_session, init_db
 from jobpilot.core.settings_store import EMAIL_PROVIDER_PRESETS, get_settings, update_settings
@@ -62,13 +63,22 @@ def dashboard(request: Request):
         applications = session.query(ApplicationRecord).order_by(ApplicationRecord.id.desc()).limit(100).all()
         emails = session.query(EmailRecord).order_by(EmailRecord.id.desc()).limit(50).all()
 
-    settings = get_settings()
-    stats = {
-        "total_jobs": len(jobs),
-        "matched": sum(1 for j in jobs if (j.match_score or 0) >= settings.match_threshold),
-        "applied": sum(1 for a in applications if a.status == "applied"),
-        "interviews": sum(1 for a in applications if a.status == "interview"),
-    }
+        settings = get_settings()
+        # Computed as real counts over the whole table, not over the
+        # display-limited lists above - otherwise these silently undercount
+        # once there are more than 100-200 rows.
+        stats = {
+            "total_jobs": session.query(func.count(JobRecord.id)).scalar(),
+            "matched": session.query(func.count(JobRecord.id))
+            .filter(JobRecord.match_score >= settings.match_threshold)
+            .scalar(),
+            "applied": session.query(func.count(ApplicationRecord.id))
+            .filter(ApplicationRecord.status == "applied")
+            .scalar(),
+            "interviews": session.query(func.count(ApplicationRecord.id))
+            .filter(ApplicationRecord.status == "interview")
+            .scalar(),
+        }
     return templates.TemplateResponse(
         request,
         "dashboard.html",
