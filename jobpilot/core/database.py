@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine
+from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from jobpilot.config import settings
@@ -45,6 +45,7 @@ class ApplicationRecord(Base):
     cover_letter: Mapped[str | None] = mapped_column(Text, nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     thread_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class EmailRecord(Base):
@@ -89,6 +90,21 @@ SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(_engine)
+    _migrate_missing_columns()
+
+
+def _migrate_missing_columns() -> None:
+    """`create_all` only creates missing tables, never adds columns to an
+    existing one - so a schema change (like adding `failure_reason`) needs
+    this tiny manual migration or anyone with an existing local database
+    would crash on the next `apply` run."""
+    inspector = inspect(_engine)
+    if "applications" not in inspector.get_table_names():
+        return
+    existing_columns = {col["name"] for col in inspector.get_columns("applications")}
+    if "failure_reason" not in existing_columns:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE applications ADD COLUMN failure_reason TEXT"))
 
 
 def get_session() -> Session:

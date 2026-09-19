@@ -13,6 +13,7 @@ import mimetypes
 import os
 import re
 import smtplib
+from collections.abc import Callable
 from email.header import decode_header
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -90,7 +91,7 @@ def _extract_body(msg: email.message.Message) -> str:
     return msg.get_payload(decode=True).decode(errors="ignore")
 
 
-def poll_inbox(limit: int = 20) -> int:
+def poll_inbox(limit: int = 20, progress: Callable[[str], None] | None = None) -> int:
     """Look at unseen inbox mail, but only ever act on messages that carry
     our own [JobPilot:<thread_key>] tag AND match a real application we
     sent - everything else (personal mail, newsletters, unrelated
@@ -98,10 +99,13 @@ def poll_inbox(limit: int = 20) -> int:
     marked read, not classified, not replied to. Returns the number of
     genuine application replies processed.
     """
+    report = progress or (lambda _msg: None)
+
     settings = get_settings()
     if not settings.imap_host or not settings.email_address:
         raise RuntimeError("Email is not configured - set it on the Settings page.")
 
+    report("Connecting to inbox...")
     processed = 0
     with imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port) as imap:
         imap.login(settings.email_address, settings.email_password)
@@ -110,6 +114,7 @@ def poll_inbox(limit: int = 20) -> int:
         if status != "OK":
             return 0
         message_ids = data[0].split()
+        report(f"{len(message_ids)} unseen message(s) in inbox - checking for JobPilot replies...")
 
         with get_session() as session:
             known_threads = {
@@ -134,6 +139,7 @@ def poll_inbox(limit: int = 20) -> int:
                 if thread_key is None or thread_key not in known_threads:
                     continue  # not a reply to a JobPilot application - ignore entirely
 
+                report(f"Processing reply: {subject}")
                 status, msg_data = imap.fetch(msg_id, "(BODY.PEEK[])")
                 if status != "OK" or not msg_data or not msg_data[0]:
                     continue

@@ -5,10 +5,11 @@ the Settings page and stored in the local database.
 """
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
@@ -22,8 +23,30 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-app = FastAPI(title="JobPilot")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="JobPilot", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+@app.middleware("http")
+async def reject_cross_origin_writes(request: Request, call_next):
+    """This dashboard has no login - the only thing standing between a
+    malicious web page (open in the same browser, on some other tab) and
+    "silently change my SMTP server" or "silently send real applications"
+    is that a browser POST to http://127.0.0.1:<port> from another origin
+    still carries an Origin header. Any state-changing request whose
+    Origin doesn't match our own is rejected outright."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin and origin != str(request.base_url).rstrip("/"):
+            return JSONResponse({"detail": "Cross-origin request rejected"}, status_code=403)
+    return await call_next(request)
 
 
 def _lang_context(request: Request) -> dict:
@@ -32,23 +55,39 @@ def _lang_context(request: Request) -> dict:
         lang = DEFAULT_LANG
     return {"lang": lang, "dir": "rtl" if lang == "ar" else "ltr", "languages": LANGUAGES, "t": translator(lang)}
 
-# In-memory only: which stage last ran and how it went. Resets on restart -
-# that's fine, it's just a status hint on the dashboard, not app state.
+# In-memory only: which stage last ran and how it went, and which stages
+# are currently running. Resets on restart - that's fine, it's just a
+# status hint for the dashboard's live-polling JS, not app state.
 _last_run: dict[str, str] = {}
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
-
+_running: set[str] = set()
 
 def _run_stage(name: str, fn) -> None:
     try:
-        result = fn()
-        _last_run[name] = f"OK ({result})"
+        result = fn(progress=lambda msg: _last_run.__setitem__(name, msg))
+        _last_run[name] = f"Done: {result}"
     except Exception as exc:
         logger.exception("%s failed", name)
         _last_run[name] = f"Error: {exc}"
+    finally:
+        _running.discard(name)
+
+
+def _compute_stats(session) -> dict:
+    settings = get_settings()
+    # Real counts over the whole table, not over any display-limited list -
+    # otherwise these silently undercount past 100-200 rows.
+    return {
+        "total_jobs": session.query(func.count(JobRecord.id)).scalar(),
+        "matched": session.query(func.count(JobRecord.id))
+        .filter(JobRecord.match_score >= settings.match_threshold)
+        .scalar(),
+        "applied": session.query(func.count(ApplicationRecord.id))
+        .filter(ApplicationRecord.status == "applied")
+        .scalar(),
+        "interviews": session.query(func.count(ApplicationRecord.id))
+        .filter(ApplicationRecord.status == "interview")
+        .scalar(),
+    }
 
 
 @app.get("/")
@@ -62,23 +101,8 @@ def dashboard(request: Request):
         )
         applications = session.query(ApplicationRecord).order_by(ApplicationRecord.id.desc()).limit(100).all()
         emails = session.query(EmailRecord).order_by(EmailRecord.id.desc()).limit(50).all()
-
         settings = get_settings()
-        # Computed as real counts over the whole table, not over the
-        # display-limited lists above - otherwise these silently undercount
-        # once there are more than 100-200 rows.
-        stats = {
-            "total_jobs": session.query(func.count(JobRecord.id)).scalar(),
-            "matched": session.query(func.count(JobRecord.id))
-            .filter(JobRecord.match_score >= settings.match_threshold)
-            .scalar(),
-            "applied": session.query(func.count(ApplicationRecord.id))
-            .filter(ApplicationRecord.status == "applied")
-            .scalar(),
-            "interviews": session.query(func.count(ApplicationRecord.id))
-            .filter(ApplicationRecord.status == "interview")
-            .scalar(),
-        }
+        stats = _compute_stats(session)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -88,10 +112,20 @@ def dashboard(request: Request):
             "emails": emails,
             "stats": stats,
             "last_run": _last_run,
+            "running": _running,
             "settings": settings,
             **_lang_context(request),
         },
     )
+
+
+@app.get("/api/status")
+def api_status():
+    """Polled by the dashboard's JS to show live progress without a manual
+    refresh, and to know when to reload for fresh table/stat data."""
+    with get_session() as session:
+        stats = _compute_stats(session)
+    return {"last_run": _last_run, "running": sorted(_running), "stats": stats}
 
 
 @app.post("/run/{stage}")
@@ -105,8 +139,9 @@ def run_stage(stage: str, background_tasks: BackgroundTasks):
         "check-email": email_agent.poll_inbox,
     }
     fn = stages.get(stage)
-    if fn is not None:
-        _last_run[stage] = "Running..."
+    if fn is not None and stage not in _running:
+        _last_run[stage] = "Starting..."
+        _running.add(stage)
         background_tasks.add_task(_run_stage, stage, fn)
     return RedirectResponse("/", status_code=303)
 

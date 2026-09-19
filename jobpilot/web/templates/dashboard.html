@@ -9,35 +9,35 @@
     <div class="run-bar">
       {% for stage, label_key in [("search", "action.run_search"), ("match", "action.run_matching"), ("apply", "action.send_applications"), ("check-email", "action.check_email")] %}
         <form method="post" action="/run/{{ stage }}">
-          <button type="submit" class="btn">{{ t(label_key) }}</button>
+          <button type="submit" class="btn" id="btn-{{ stage }}" {{ "disabled" if stage in running }}>{{ t(label_key) }}</button>
         </form>
       {% endfor %}
     </div>
   </header>
 
-  {% if last_run %}
-  <div class="status-strip">
+  <div class="status-strip" id="status-strip">
     {% for stage, status in last_run.items() %}
-      <span class="status-chip"><b>{{ stage }}</b>: {{ status }}</span>
+      <span class="status-chip {{ 'status-chip-running' if stage in running }}" id="status-{{ stage }}" data-stage="{{ stage }}">
+        <b>{{ stage }}</b>: <span class="status-chip-text">{{ status }}</span>
+      </span>
     {% endfor %}
   </div>
-  {% endif %}
 
   <section class="stat-grid">
     <div class="stat-card">
-      <span class="stat-value">{{ stats.total_jobs }}</span>
+      <span class="stat-value" id="stat-total_jobs">{{ stats.total_jobs }}</span>
       <span class="stat-label">{{ t('stat.jobs_found') }}</span>
     </div>
     <div class="stat-card">
-      <span class="stat-value">{{ stats.matched }}</span>
+      <span class="stat-value" id="stat-matched">{{ stats.matched }}</span>
       <span class="stat-label">{{ t('stat.above_threshold', threshold=settings.match_threshold) }}</span>
     </div>
     <div class="stat-card">
-      <span class="stat-value">{{ stats.applied }}</span>
+      <span class="stat-value" id="stat-applied">{{ stats.applied }}</span>
       <span class="stat-label">{{ t('stat.applications_sent') }}</span>
     </div>
     <div class="stat-card">
-      <span class="stat-value">{{ stats.interviews }}</span>
+      <span class="stat-value" id="stat-interviews">{{ stats.interviews }}</span>
       <span class="stat-label">{{ t('stat.interview_replies') }}</span>
     </div>
   </section>
@@ -52,7 +52,7 @@
         <tbody>
           {% for job in jobs %}
           <tr>
-            <td>{% if job.match_score is not none %}<span class="badge {{ 'badge-good' if job.match_score >= settings.match_threshold else 'badge-mute' }}">{{ job.match_score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{% if job.match_score is not none %}<span class="badge {{ 'badge-good' if job.match_score >= settings.match_threshold else 'badge-mute' }}" title="{{ job.match_reason or '' }}">{{ job.match_score }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
             <td>{{ job.title }}</td>
             <td>{{ job.company }}</td>
             <td>{{ job.country }}</td>
@@ -71,16 +71,21 @@
     <h2>{{ t('section.applications') }}</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>{{ t('col.job') }}</th><th>{{ t('col.status') }}</th><th>{{ t('col.applied_at') }}</th></tr></thead>
+        <thead><tr><th>{{ t('col.job') }}</th><th>{{ t('col.status') }}</th><th>{{ t('col.reason') }}</th><th>{{ t('col.applied_at') }}</th></tr></thead>
         <tbody>
           {% for app in applications %}
           <tr>
             <td>{{ app.job_external_id }}</td>
             <td><span class="badge badge-{{ app.status }}">{{ app.status }}</span></td>
+            <td class="muted">
+              {% if app.failure_reason == "no_contact_email" %}{{ t('reason.no_contact_email') }}
+              {% elif app.failure_reason %}{{ app.failure_reason }}
+              {% else %}—{% endif %}
+            </td>
             <td class="muted">{{ app.applied_at or "—" }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="3" class="muted">{{ t('empty.applications') }}</td></tr>
+          <tr><td colspan="4" class="muted">{{ t('empty.applications') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -107,4 +112,45 @@
       </table>
     </div>
   </section>
+
+  <script>
+    (function () {
+      var lastRunningCount = {{ running|length }};
+
+      function setChip(stage, text, running) {
+        var chip = document.getElementById('status-' + stage);
+        if (!chip) {
+          chip = document.createElement('span');
+          chip.id = 'status-' + stage;
+          chip.className = 'status-chip';
+          chip.innerHTML = '<b>' + stage + '</b>: <span class="status-chip-text"></span>';
+          document.getElementById('status-strip').appendChild(chip);
+        }
+        chip.classList.toggle('status-chip-running', running);
+        chip.querySelector('.status-chip-text').textContent = text;
+      }
+
+      function poll() {
+        fetch('/api/status').then(function (r) { return r.json(); }).then(function (data) {
+          Object.keys(data.last_run).forEach(function (stage) {
+            setChip(stage, data.last_run[stage], data.running.indexOf(stage) !== -1);
+          });
+          ['total_jobs', 'matched', 'applied', 'interviews'].forEach(function (key) {
+            var el = document.getElementById('stat-' + key);
+            if (el) el.textContent = data.stats[key];
+          });
+          ['search', 'match', 'apply', 'check-email'].forEach(function (stage) {
+            var btn = document.getElementById('btn-' + stage);
+            if (btn) btn.disabled = data.running.indexOf(stage) !== -1;
+          });
+          if (lastRunningCount > 0 && data.running.length === 0) {
+            location.reload(); // a stage just finished - refresh tables/stats for real
+          }
+          lastRunningCount = data.running.length;
+        }).catch(function () { /* transient - next poll will retry */ });
+      }
+
+      setInterval(poll, 2500);
+    })();
+  </script>
 {% endblock %}

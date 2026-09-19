@@ -37,6 +37,11 @@ _STRINGS: dict[str, dict[str, str]] = {
     "col.source": {"en": "Source", "ar": "المصدر"},
     "col.job": {"en": "Job", "ar": "الوظيفة"},
     "col.status": {"en": "Status", "ar": "الحالة"},
+    "col.reason": {"en": "Reason", "ar": "السبب"},
+    "reason.no_contact_email": {
+        "en": "No contact email found on listing — apply manually",
+        "ar": "لم يُعثر على إيميل تواصل في الإعلان — التقديم يدوياً",
+    },
     "col.applied_at": {"en": "Applied at", "ar": "تاريخ التقديم"},
     "col.direction": {"en": "Direction", "ar": "الاتجاه"},
     "col.subject": {"en": "Subject", "ar": "الموضوع"},

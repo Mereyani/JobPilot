@@ -8,6 +8,7 @@ no discoverable email, it's marked failed for manual follow-up instead.
 """
 
 import logging
+from collections.abc import Callable
 
 from jobpilot.agents.email_agent import build_subject, send_email
 from jobpilot.agents.profile_agent import load_profile
@@ -73,11 +74,13 @@ def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: 
         application = ApplicationRecord(job_external_id=job.external_id, thread_key=thread_key)
     application.status = "pending"
     application.thread_key = thread_key
+    application.failure_reason = None
 
     contact_email = _contact_email(job)
     if not contact_email:
         logger.info("No contact email found for %s - skipping (manual application needed)", job.external_id)
         application.status = "failed"
+        application.failure_reason = "no_contact_email"
         session.add(application)
         session.commit()
         return
@@ -89,19 +92,22 @@ def _apply_one(session, profile: CandidateProfile, job: JobRecord, resume_path: 
         application.cover_letter = cover_letter
         application.status = "applied"
         application.applied_at = utcnow()
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to email application for %s", job.external_id)
         application.status = "failed"
+        application.failure_reason = f"send_error: {exc}"
 
     session.add(application)
     session.commit()
 
 
-def run() -> int:
+def run(progress: Callable[[str], None] | None = None) -> int:
     """Apply to every eligible pending job, throttled per configuration.
 
     Returns the number of applications attempted (applied + failed).
     """
+    report = progress or (lambda _msg: None)
+
     profile = load_profile()
     if profile is None:
         raise RuntimeError("No candidate profile found - run the profile agent first.")
@@ -115,8 +121,15 @@ def run() -> int:
     attempted = 0
     with get_session() as session:
         pending = _pending_jobs(session, settings.match_threshold)
+        total = len(pending)
+        if total == 0:
+            report("No eligible jobs to apply to.")
+            return 0
+        report(f"0/{total} applications sent")
         for batch in limiter.batches(pending):
             for job in batch:
+                report(f"Applying ({attempted + 1}/{total}): {job.title} at {job.company}...")
                 _apply_one(session, profile, job, settings.resume_path)
                 attempted += 1
+                report(f"{attempted}/{total} applications processed")
     return attempted

@@ -10,6 +10,7 @@ which the Bayt connector then searches directly.
 """
 
 import logging
+from collections.abc import Callable
 
 from jobpilot.agents.profile_agent import load_profile
 from jobpilot.connectors.bayt import BaytConnector
@@ -82,25 +83,33 @@ def _upsert(session, job: JobListing) -> bool:
     return True
 
 
-def run(limit_per_query: int = 25) -> int:
+def run(limit_per_query: int = 25, progress: Callable[[str], None] | None = None) -> int:
     """Search all countries across every connector.
 
     Returns the number of newly discovered jobs.
     """
+    report = progress or (lambda _msg: None)
+
     settings = get_settings()
     profile = load_profile()
     new_count = 0
     with get_session() as session:
         for connector in _connectors():
             for country in settings.countries:
+                report(f"Generating search keywords for {country}...")
                 keywords = _keywords_for_country(profile, country, settings.roles)
+                report(f"Searching {connector.name} in {country} for: {', '.join(keywords)}")
                 try:
                     jobs = connector.search(keywords, country, limit=limit_per_query)
                 except Exception:
                     logger.exception("%s search failed for %s", connector.name, country)
+                    report(f"{connector.name} search failed for {country} - see logs")
                     continue
+                added = 0
                 for job in jobs:
                     if _upsert(session, job):
                         new_count += 1
+                        added += 1
+                report(f"{country}: found {len(jobs)} listings, {added} new")
         session.commit()
     return new_count

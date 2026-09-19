@@ -134,10 +134,11 @@ h2 { margin: 0 0 12px; font-size: 15px; }
   cursor: pointer;
 }
 .btn:hover { filter: brightness(1.15); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 .btn-primary { background: var(--accent); color: #0b1220; }
 .btn-ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--muted); font-weight: 500; }
 
-.status-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.status-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; min-height: 24px; }
 .status-chip {
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -145,6 +146,22 @@ h2 { margin: 0 0 12px; font-size: 15px; }
   padding: 4px 12px;
   font-size: 12px;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-chip-running { border-color: var(--accent); color: var(--text); }
+.status-chip-running::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 .stat-grid {

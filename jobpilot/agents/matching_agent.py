@@ -1,6 +1,7 @@
 """Scores un-scored jobs against the candidate's profile using Claude."""
 
 import logging
+from collections.abc import Callable
 
 from jobpilot.agents.profile_agent import load_profile
 from jobpilot.core.database import JobRecord, get_session
@@ -43,11 +44,13 @@ def _score(profile: CandidateProfile, job: JobRecord) -> tuple[int, str]:
     return max(0, min(100, score)), reason
 
 
-def run() -> int:
+def run(progress: Callable[[str], None] | None = None) -> int:
     """Score every job that doesn't have a match_score yet.
 
     Returns the number of jobs scored.
     """
+    report = progress or (lambda _msg: None)
+
     profile = load_profile()
     if profile is None:
         raise RuntimeError("No candidate profile found - run the profile agent first.")
@@ -55,7 +58,12 @@ def run() -> int:
     scored = 0
     with get_session() as session:
         pending = session.query(JobRecord).filter(JobRecord.match_score.is_(None)).all()
-        for job in pending:
+        total = len(pending)
+        if total == 0:
+            report("No unscored jobs.")
+            return 0
+        for i, job in enumerate(pending, start=1):
+            report(f"Scoring ({i}/{total}): {job.title} at {job.company}...")
             try:
                 score, reason = _score(profile, job)
             except Exception:

@@ -88,17 +88,14 @@ _PROVIDERS = {
 }
 
 
-def _generate(system: str, user: str, max_tokens: int, json_mode: bool) -> str:
-    settings = get_settings()
-    generate_fn = _PROVIDERS.get(settings.llm_provider)
+def _call_with_retry(provider: str, settings: RuntimeSettings, system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    generate_fn = _PROVIDERS.get(provider)
     if generate_fn is None:
-        raise RuntimeError(
-            f"Unknown llm_provider '{settings.llm_provider}' - expected one of {list(_PROVIDERS)}."
-        )
+        raise RuntimeError(f"Unknown llm_provider '{provider}' - expected one of {list(_PROVIDERS)}.")
 
     for attempt, delay in enumerate((0, *_RETRY_DELAYS_SECONDS)):
         if delay:
-            logger.warning("Rate-limited by %s, retrying in %ds", settings.llm_provider, delay)
+            logger.warning("Rate-limited by %s, retrying in %ds", provider, delay)
             time.sleep(delay)
         try:
             return generate_fn(settings, system, user, max_tokens, json_mode)
@@ -107,6 +104,24 @@ def _generate(system: str, user: str, max_tokens: int, json_mode: bool) -> str:
             if not is_rate_limit or attempt == len(_RETRY_DELAYS_SECONDS):
                 raise
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _generate(system: str, user: str, max_tokens: int, json_mode: bool) -> str:
+    settings = get_settings()
+    provider = settings.llm_provider
+    try:
+        return _call_with_retry(provider, settings, system, user, max_tokens, json_mode)
+    except Exception as exc:
+        # A local Ollama model, if the user has one configured, is a
+        # reasonable fallback for a hosted provider that's out of quota or
+        # unreachable - it has no rate limit and needs no network access.
+        if provider != "ollama" and settings.ollama_model:
+            logger.warning("%s failed (%s) - falling back to local Ollama (%s)", provider, exc, settings.ollama_model)
+            try:
+                return _ollama_generate(settings, system, user, max_tokens, json_mode)
+            except Exception:
+                logger.exception("Ollama fallback also failed")
+        raise
 
 
 def ask_json(system: str, user: str, max_tokens: int = 1500) -> dict[str, Any]:
