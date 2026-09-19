@@ -25,19 +25,19 @@
           <input type="password" name="anthropic_api_key" placeholder="{{ t('placeholder.saved_secret') if settings.anthropic_api_key else 'sk-ant-...' }}">
         </label>
         <label>{{ t('field.anthropic_model') }}
-          <input type="text" name="anthropic_model" value="{{ settings.anthropic_model }}">
+          <input type="text" name="anthropic_model" value="{{ settings.anthropic_model }}" dir="ltr">
         </label>
         <label>{{ t('field.google_key') }}
           <input type="password" name="google_api_key" placeholder="{{ t('placeholder.saved_secret') if settings.google_api_key else 'AIzaSy...' }}">
         </label>
         <label>{{ t('field.google_model') }}
-          <input type="text" name="google_model" value="{{ settings.google_model }}">
+          <input type="text" name="google_model" value="{{ settings.google_model }}" dir="ltr">
         </label>
         <label>{{ t('field.ollama_url') }}
-          <input type="text" name="ollama_base_url" value="{{ settings.ollama_base_url }}">
+          <input type="text" name="ollama_base_url" value="{{ settings.ollama_base_url }}" dir="ltr">
         </label>
         <label>{{ t('field.ollama_model') }}
-          <input type="text" name="ollama_model" value="{{ settings.ollama_model }}">
+          <input type="text" name="ollama_model" value="{{ settings.ollama_model }}" dir="ltr">
         </label>
       </div>
     </section>
@@ -47,7 +47,7 @@
       <p class="muted">{{ t('settings.email_hint') }}</p>
       <div class="field-grid">
         <label>{{ t('field.email_address') }}
-          <input type="email" name="email_address" value="{{ settings.email_address }}" placeholder="you@example.com">
+          <input type="email" name="email_address" value="{{ settings.email_address }}" placeholder="you@example.com" dir="ltr">
         </label>
         <label>{{ t('field.app_password') }}
           <input type="password" name="email_password" placeholder="{{ t('placeholder.saved_secret') if settings.email_password else '16-character app password' }}">
@@ -62,9 +62,9 @@
         {% endfor %}
       </div>
       <div class="field-grid">
-        <label>{{ t('field.imap_host') }} <input type="text" name="imap_host" id="imap_host" value="{{ settings.imap_host }}"></label>
+        <label>{{ t('field.imap_host') }} <input type="text" name="imap_host" id="imap_host" value="{{ settings.imap_host }}" dir="ltr"></label>
         <label>{{ t('field.imap_port') }} <input type="number" name="imap_port" id="imap_port" value="{{ settings.imap_port }}"></label>
-        <label>{{ t('field.smtp_host') }} <input type="text" name="smtp_host" id="smtp_host" value="{{ settings.smtp_host }}"></label>
+        <label>{{ t('field.smtp_host') }} <input type="text" name="smtp_host" id="smtp_host" value="{{ settings.smtp_host }}" dir="ltr"></label>
         <label>{{ t('field.smtp_port') }} <input type="number" name="smtp_port" id="smtp_port" value="{{ settings.smtp_port }}"></label>
       </div>
       <label class="checkbox">
@@ -83,7 +83,7 @@
           <input type="text" name="target_roles" value="{{ settings.target_roles }}">
         </label>
         <label>{{ t('field.resume_path') }}
-          <input type="text" name="resume_path" value="{{ settings.resume_path }}">
+          <input type="text" name="resume_path" value="{{ settings.resume_path }}" dir="ltr">
         </label>
         <label>{{ t('field.match_threshold') }}
           <input type="number" name="match_threshold" min="0" max="100" value="{{ settings.match_threshold }}">
@@ -100,6 +100,20 @@
         </label>
         <label>{{ t('field.batch_interval') }}
           <input type="number" name="application_batch_interval_minutes" min="0" value="{{ settings.application_batch_interval_minutes }}">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>{{ t('settings.auto_run') }}</h2>
+      <p class="muted">{{ t('settings.auto_run_hint') }}</p>
+      <label class="checkbox">
+        <input type="checkbox" name="auto_run_enabled" {{ "checked" if settings.auto_run_enabled }}>
+        {{ t('field.auto_run_enabled') }}
+      </label>
+      <div class="field-grid">
+        <label>{{ t('field.auto_run_interval') }}
+          <input type="number" name="auto_run_interval_hours" min="0.1" step="0.5" value="{{ settings.auto_run_interval_hours }}">
         </label>
       </div>
     </section>

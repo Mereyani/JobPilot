@@ -5,10 +5,12 @@ the Settings page and stored in the local database.
 """
 
 import logging
+import threading
+import time as time_module
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,10 +25,13 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+_AUTO_RUN_POLL_SECONDS = 60
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     init_db()
+    threading.Thread(target=_auto_run_loop, daemon=True).start()
     yield
 
 
@@ -61,6 +66,17 @@ def _lang_context(request: Request) -> dict:
 _last_run: dict[str, str] = {}
 _running: set[str] = set()
 
+def _stage_functions() -> dict:
+    from jobpilot.agents import application_agent, email_agent, matching_agent, search_agent
+
+    return {
+        "search": search_agent.run,
+        "match": matching_agent.run,
+        "apply": application_agent.run,
+        "check-email": email_agent.poll_inbox,
+    }
+
+
 def _run_stage(name: str, fn) -> None:
     try:
         result = fn(progress=lambda msg: _last_run.__setitem__(name, msg))
@@ -70,6 +86,46 @@ def _run_stage(name: str, fn) -> None:
         _last_run[name] = f"Error: {exc}"
     finally:
         _running.discard(name)
+
+
+def _trigger_stage(stage: str) -> bool:
+    """Start a stage in the background if it isn't already running.
+    Returns True if it was actually started."""
+    fn = _stage_functions().get(stage)
+    if fn is None or stage in _running:
+        return False
+    _last_run[stage] = "Starting..."
+    _running.add(stage)
+    threading.Thread(target=_run_stage, args=(stage, fn), daemon=True).start()
+    return True
+
+
+def _auto_run_loop() -> None:
+    """Runs the full pipeline on the interval set in Settings ('Run
+    automatically'). Off by default - enabling it means real applications
+    get sent, unattended, on a timer. Re-reads settings every poll so
+    toggling it off (or changing the interval) takes effect within
+    `_AUTO_RUN_POLL_SECONDS`, not only after the next full interval.
+    """
+    while True:
+        settings = get_settings()
+        if settings.auto_run_enabled:
+            logger.info("Auto-run: starting scheduled pipeline")
+            for stage, fn in _stage_functions().items():
+                if stage in _running:
+                    continue  # a manual run is already in flight for this stage
+                _last_run[stage] = "Starting (auto)..."
+                _running.add(stage)
+                _run_stage(stage, fn)  # blocks until this stage finishes
+            interval_hours = get_settings().auto_run_interval_hours
+        else:
+            interval_hours = _AUTO_RUN_POLL_SECONDS / 3600  # check back soon in case it gets enabled
+
+        deadline = time_module.time() + max(interval_hours, 0.1) * 3600
+        while time_module.time() < deadline:
+            time_module.sleep(min(_AUTO_RUN_POLL_SECONDS, deadline - time_module.time()))
+            if get_settings().auto_run_enabled != settings.auto_run_enabled:
+                break  # setting changed mid-wait - re-evaluate immediately
 
 
 def _compute_stats(session) -> dict:
@@ -129,20 +185,8 @@ def api_status():
 
 
 @app.post("/run/{stage}")
-def run_stage(stage: str, background_tasks: BackgroundTasks):
-    from jobpilot.agents import application_agent, email_agent, matching_agent, search_agent
-
-    stages = {
-        "search": search_agent.run,
-        "match": matching_agent.run,
-        "apply": application_agent.run,
-        "check-email": email_agent.poll_inbox,
-    }
-    fn = stages.get(stage)
-    if fn is not None and stage not in _running:
-        _last_run[stage] = "Starting..."
-        _running.add(stage)
-        background_tasks.add_task(_run_stage, stage, fn)
+def run_stage(stage: str):
+    _trigger_stage(stage)
     return RedirectResponse("/", status_code=303)
 
 
@@ -190,6 +234,8 @@ def save_settings(
     application_batch_size: int = Form(10),
     application_batch_interval_minutes: int = Form(10),
     resume_path: str = Form("./data/resume.pdf"),
+    auto_run_enabled: str | None = Form(None),
+    auto_run_interval_hours: float = Form(24),
 ):
     current = get_settings()
     update_settings(
@@ -215,5 +261,7 @@ def save_settings(
         application_batch_size=application_batch_size,
         application_batch_interval_minutes=application_batch_interval_minutes,
         resume_path=resume_path,
+        auto_run_enabled=auto_run_enabled is not None,
+        auto_run_interval_hours=auto_run_interval_hours,
     )
     return RedirectResponse("/settings?saved=1", status_code=303)

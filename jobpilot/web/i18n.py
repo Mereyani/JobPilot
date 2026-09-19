@@ -99,6 +99,13 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "field.batch_size": {"en": "Batch size", "ar": "حجم الدفعة"},
     "field.batch_interval": {"en": "Minutes between batches", "ar": "الدقائق بين الدفعات"},
+    "settings.auto_run": {"en": "Automatic runs", "ar": "التشغيل التلقائي"},
+    "settings.auto_run_hint": {
+        "en": "When enabled, JobPilot runs the whole pipeline (search → match → apply → check email) by itself on this interval - including sending real applications, unattended.",
+        "ar": "عند التفعيل، سيشغّل JobPilot خط الأنابيب كاملاً (بحث ← مطابقة ← تقديم ← فحص بريد) تلقائياً على هذا الفاصل الزمني — بما في ذلك إرسال تقديمات حقيقية دون إشراف.",
+    },
+    "field.auto_run_enabled": {"en": "Run automatically", "ar": "تشغيل تلقائي"},
+    "field.auto_run_interval": {"en": "Every how many hours", "ar": "كل كم ساعة"},
     "action.save_settings": {"en": "Save settings", "ar": "حفظ الإعدادات"},
     "placeholder.saved_secret": {
         "en": "•••• saved — leave blank to keep",

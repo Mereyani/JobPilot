@@ -41,6 +41,11 @@ class RuntimeSettings(BaseModel):
     application_batch_size: int = 10
     application_batch_interval_minutes: int = 10
 
+    # --- Automatic recurring runs (off by default - this sends real email
+    # unattended once enabled, so it's an explicit opt-in) ---
+    auto_run_enabled: bool = False
+    auto_run_interval_hours: float = 24
+
     @property
     def countries(self) -> list[str]:
         return [c.strip() for c in self.target_countries.split(",") if c.strip()]
